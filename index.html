@@ -411,11 +411,14 @@ function showResult(data) {
 
     if (data.summary?.labs?.length) {
         html += `<div style="font-size:11px;font-weight:600;color:var(--muted);letter-spacing:0.05em;text-transform:uppercase;margin-bottom:10px;">${data.summary.labs.length} Lab Summaries</div>`;
-        html += data.summary.labs.map((lab, i) => `
-            <div style="margin-bottom:12px;border:1px solid rgba(108,99,255,0.14);border-radius:11px;overflow:hidden;">
-                <div style="background:rgba(108,99,255,0.12);padding:9px 14px;font-size:13px;font-weight:700;color:#a09aff;">${escHtml(lab.title)}</div>
-                <div style="padding:10px 14px;font-size:12px;color:var(--muted);line-height:1.6;">
-                    <span style="color:#43D9AD;font-weight:600;">Objective:</span> ${escHtml(lab.objective)}
+        html += data.summary.labs.map((lab) => `
+            <div style="margin-bottom:14px;border:1px solid rgba(108,99,255,0.18);border-radius:11px;overflow:hidden;">
+                <div style="background:rgba(108,99,255,0.14);padding:9px 14px;font-size:13px;font-weight:700;color:#a09aff;">${escHtml(lab.title)}</div>
+                <div style="padding:12px 14px;font-size:12px;color:var(--muted);line-height:1.7;display:flex;flex-direction:column;gap:6px;">
+                    <div><span style="color:#43D9AD;font-weight:600;">Objective:</span> ${escHtml(lab.objective || '')}</div>
+                    <div><span style="color:#6C63FF;font-weight:600;">Key Topics:</span> ${escHtml(lab.keyTopics || '')}</div>
+                    <div><span style="color:#FFB86C;font-weight:600;">Hands-On Activity:</span> ${escHtml(lab.handsOnActivity || '')}</div>
+                    <div><span style="color:#FF6584;font-weight:600;">Real-World Application:</span> ${escHtml(lab.realWorldApplication || '')}</div>
                 </div>
             </div>`).join('');
     }
