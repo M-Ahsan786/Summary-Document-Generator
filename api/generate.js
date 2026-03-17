@@ -312,7 +312,11 @@ async function callGroq(apiKey, prompt) {
             throw new Error(errMsg);
         }
 
-        return parseJsonSafe(JSON.parse(rawBody).choices?.[0]?.message?.content || '');
+        let groqData = null;
+        try { groqData = JSON.parse(rawBody); } catch (_) {
+            throw new Error(`Groq returned non-JSON (status ${res.status}): ${rawBody.substring(0, 150)}`);
+        }
+        return parseJsonSafe(groqData.choices?.[0]?.message?.content || '');
     }
 
     throw lastError || new Error('Groq failed after retries');
