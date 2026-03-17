@@ -18,6 +18,46 @@ export const config = {
     }
 };
 
+// ═══════════════════════════════════════════════
+// API KEY MANAGER
+// Tries keys in order, marks exhausted keys, auto-rotates
+// Resets exhausted status on next day (midnight UTC)
+// ═══════════════════════════════════════════════
+const keyState = {};   // { keyHash: { exhausted: bool, exhaustedAt: timestamp } }
+
+function getKeyHash(key) {
+    // Simple hash to identify key without storing it
+    return key ? key.slice(-8) : 'none';
+}
+
+function isExhausted(key) {
+    const hash = getKeyHash(key);
+    const state = keyState[hash];
+    if (!state || !state.exhausted) return false;
+    // Reset if it's a new UTC day (daily quota resets at midnight UTC)
+    const exhaustedDay = new Date(state.exhaustedAt).toISOString().slice(0, 10);
+    const today = new Date().toISOString().slice(0, 10);
+    if (exhaustedDay !== today) {
+        delete keyState[hash];
+        return false;
+    }
+    return true;
+}
+
+function markExhausted(key) {
+    const hash = getKeyHash(key);
+    keyState[hash] = { exhausted: true, exhaustedAt: Date.now() };
+    console.log(`Key ...${hash} marked exhausted for today`);
+}
+
+function isQuotaError(msg = '') {
+    return msg.includes('quota') ||
+           msg.includes('RESOURCE_EXHAUSTED') ||
+           msg.includes('429') ||
+           msg.includes('rate limit') ||
+           msg.includes('limit reached');
+}
+
 export default async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -32,10 +72,20 @@ export default async function handler(req, res) {
         if (!courseName || typeof courseName !== 'string')
             return res.status(400).json({ error: 'courseName is required' });
 
-        const geminiKey = process.env.GEMINI_API_KEY;
-        const groqKey   = process.env.GROQ_API_KEY;
-        if (!geminiKey && !groqKey)
+        // All available API keys in priority order
+        // Gemini 1 → Gemini 2 → Groq (fallback)
+        const geminiKey1 = process.env.GEMINI_API_KEY;
+        const geminiKey2 = process.env.GEMINI_API_KEY_2;
+        const groqKey    = process.env.GROQ_API_KEY;
+
+        if (!geminiKey1 && !geminiKey2 && !groqKey)
             return res.status(500).json({ error: 'No API keys configured on server' });
+
+        // Build ordered list of available callers
+        const apiCallers = [];
+        if (geminiKey1) apiCallers.push({ name: 'Gemini-1', key: geminiKey1, fn: callGemini });
+        if (geminiKey2) apiCallers.push({ name: 'Gemini-2', key: geminiKey2, fn: callGemini });
+        if (groqKey)    apiCallers.push({ name: 'Groq',     key: groqKey,    fn: callGroq, isGroq: true });
 
         // Extract lab titles from ## heading in each file
         const filesWithTitles = files.map((f, i) => ({
@@ -52,7 +102,7 @@ export default async function handler(req, res) {
 
         const allLabs = [];
         let courseOverview = '';
-        let usedApi = '';
+        let lastUsedApi = '';
 
         for (let b = 0; b < batches.length; b++) {
             const batch = batches[b];
@@ -61,47 +111,57 @@ export default async function handler(req, res) {
                 `=== LAB FILE ${b * BATCH_SIZE + i + 1}: ${f.labTitle} ===\n${f.content}`
             ).join('\n\n');
 
-            const prompt = buildPrompt(
-                filesWithTitles.length,
-                batch.length,
-                b * BATCH_SIZE + 1,
-                courseName,
-                combinedContent,
-                isFirst
-            );
-
             let batchData = null;
+            let batchError = '';
 
-            if (geminiKey) {
+            // Try each API caller in order, skip exhausted keys
+            for (const caller of apiCallers) {
+                if (isExhausted(caller.key)) {
+                    console.log(`Skipping ${caller.name} — exhausted today`);
+                    continue;
+                }
+
+                // Groq gets trimmed content (small context window)
+                const content = caller.isGroq
+                    ? combinedContent.substring(0, 18000)
+                    : combinedContent;
+
+                const prompt = buildPrompt(
+                    filesWithTitles.length, batch.length,
+                    b * BATCH_SIZE + 1, courseName, content, isFirst
+                );
+
                 try {
-                    batchData = await callGemini(geminiKey, prompt);
-                    usedApi = 'Gemini';
-                } catch (e) {
-                    console.error(`Gemini batch ${b+1} failed:`, e.message);
+                    batchData = await caller.fn(caller.key, prompt);
+                    lastUsedApi = caller.name;
+                    break; // Success — move to next batch
+                } catch (err) {
+                    batchError = err.message;
+                    console.error(`${caller.name} batch ${b+1} failed: ${err.message}`);
+                    // If quota/rate limit — mark this key exhausted and try next
+                    if (isQuotaError(err.message)) {
+                        markExhausted(caller.key);
+                        continue;
+                    }
+                    // Non-quota error — still try next key
+                    continue;
                 }
             }
 
-            if (!batchData && groqKey) {
-                try {
-                    const groqPrompt = buildPrompt(
-                        filesWithTitles.length, batch.length,
-                        b * BATCH_SIZE + 1, courseName,
-                        combinedContent.substring(0, 18000), isFirst
-                    );
-                    batchData = await callGroq(groqKey, groqPrompt);
-                    usedApi = 'Groq';
-                } catch (e) {
-                    throw new Error(`Batch ${b+1} failed on both APIs: ${e.message}`);
-                }
+            if (!batchData) {
+                throw new Error(`Batch ${b+1}/${batches.length} failed on all APIs. Last error: ${batchError}`);
             }
-
-            if (!batchData) throw new Error(`Failed to process batch ${b+1}`);
 
             if (isFirst && batchData.courseOverview) {
                 courseOverview = batchData.courseOverview;
             }
             if (Array.isArray(batchData.labs)) {
                 allLabs.push(...batchData.labs);
+            }
+
+            // Delay between batches — prevents rate limits
+            if (b < batches.length - 1) {
+                await new Promise(r => setTimeout(r, 1500));
             }
         }
 
@@ -110,7 +170,10 @@ export default async function handler(req, res) {
         const base64 = docBuffer.toString('base64');
         const filename = `${courseName.replace(/[^a-z0-9]/gi, '_')}_Summary.docx`;
 
-        return res.status(200).json({ ok: true, docx: base64, filename, summary: summaryData, usedApi });
+        return res.status(200).json({
+            ok: true, docx: base64, filename,
+            summary: summaryData, usedApi: lastUsedApi
+        });
 
     } catch (err) {
         return res.status(500).json({ error: err.message });
@@ -182,29 +245,54 @@ async function callGemini(apiKey, prompt) {
 }
 
 // ═══════════════════════════════════════════════
-// GROQ API CALL
+// GROQ API CALL — with auto-retry on rate limit
 // ═══════════════════════════════════════════════
 async function callGroq(apiKey, prompt) {
-    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-        body: JSON.stringify({
-            model: 'llama-3.1-8b-instant',
-            max_tokens: 6000,
-            temperature: 0.4,
-            messages: [
-                { role: 'system', content: 'You are a professional technical writer. Always respond with valid JSON only — no markdown fences, no explanation.' },
-                { role: 'user', content: prompt }
-            ]
-        })
-    });
-    const rawBody = await res.text();
-    if (!res.ok) {
-        let errMsg = `Groq API error ${res.status}`;
-        try { errMsg = JSON.parse(rawBody).error?.message || errMsg; } catch (_) {}
-        throw new Error(errMsg);
+    const MAX_RETRIES = 3;
+    let lastError;
+
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+        const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+            body: JSON.stringify({
+                model: 'llama-3.1-8b-instant',
+                max_tokens: 6000,
+                temperature: 0.4,
+                messages: [
+                    { role: 'system', content: 'You are a professional technical writer. Always respond with valid JSON only — no markdown fences, no explanation.' },
+                    { role: 'user', content: prompt }
+                ]
+            })
+        });
+
+        const rawBody = await res.text();
+
+        if (res.status === 429) {
+            // Rate limit — parse retry-after or wait 60s
+            let waitMs = 62000;
+            try {
+                const errJson = JSON.parse(rawBody);
+                const msg = errJson.error?.message || '';
+                const match = msg.match(/try again in ([\d.]+)s/i);
+                if (match) waitMs = Math.ceil(parseFloat(match[1]) * 1000) + 2000;
+            } catch (_) {}
+            console.log(`Groq rate limit — waiting ${waitMs}ms before retry ${attempt + 1}/${MAX_RETRIES}`);
+            await new Promise(r => setTimeout(r, waitMs));
+            lastError = new Error(`Groq rate limit (attempt ${attempt + 1})`);
+            continue;
+        }
+
+        if (!res.ok) {
+            let errMsg = `Groq API error ${res.status}`;
+            try { errMsg = JSON.parse(rawBody).error?.message || errMsg; } catch (_) {}
+            throw new Error(errMsg);
+        }
+
+        return parseJsonSafe(JSON.parse(rawBody).choices?.[0]?.message?.content || '');
     }
-    return parseJsonSafe(JSON.parse(rawBody).choices?.[0]?.message?.content || '');
+
+    throw lastError || new Error('Groq failed after retries');
 }
 
 // ═══════════════════════════════════════════════
