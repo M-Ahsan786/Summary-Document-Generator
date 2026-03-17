@@ -157,6 +157,34 @@
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: rgba(108,99,255,0.35); border-radius: 10px; }
 
+        .tab-bar {
+            display: inline-flex;
+            background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(108,99,255,0.18);
+            border-radius: 50px;
+            padding: 4px; gap: 4px;
+        }
+        .tab-bar button {
+            padding: 8px 20px; border-radius: 50px;
+            font-size: 13px; font-weight: 600;
+            transition: all 0.25s ease; border: none; cursor: pointer;
+            color: var(--muted); background: transparent;
+        }
+        .tab-bar button.active {
+            background: linear-gradient(135deg, #6C63FF, #9B8FFF);
+            color: white;
+            box-shadow: 0 4px 20px rgba(108,99,255,0.4);
+        }
+        .tab-bar button:not(.active):hover { color: var(--text); background: rgba(255,255,255,0.05); }
+
+        .quota-card {
+            background: linear-gradient(145deg, rgba(18,18,42,0.9), rgba(12,12,28,0.95));
+            border: 1px solid rgba(108,99,255,0.14);
+            border-radius: 14px; padding: 16px 18px;
+            transition: all 0.25s ease;
+        }
+        .quota-card:hover { border-color: rgba(108,99,255,0.28); }
+
         @keyframes fadeUp { from{opacity:0;transform:translateY(18px)} to{opacity:1;transform:translateY(0)} }
         .fu  { animation: fadeUp 0.5s ease forwards; }
         .fu1 { animation: fadeUp 0.5s ease 0.1s both; }
@@ -186,16 +214,20 @@
     <!-- Card -->
     <div class="glass max-w-3xl w-full mx-auto flex-1 p-5 md:p-7 fu1">
 
-        <!-- Top bar -->
+        <!-- Top bar with tabs -->
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:28px;">
-            <div class="stag">📄&nbsp; Summary Generator</div>
+            <div class="tab-bar">
+                <button id="tab-generator" class="active" onclick="switchTab('generator')">📄&nbsp; Generator</button>
+                <button id="tab-quota" onclick="switchTab('quota')">📊&nbsp; API Quota</button>
+            </div>
             <button class="btn-reset" onclick="resetAll()">
                 <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
                 Reset
             </button>
         </div>
 
-        <!-- Step 1: Upload -->
+        <!-- ===== GENERATOR SECTION ===== -->
+        <div id="section-generator">
         <div style="margin-bottom:22px;">
             <div style="font-size:12px;font-weight:600;color:var(--muted);letter-spacing:0.05em;text-transform:uppercase;margin-bottom:10px;">
                 Step 1 — Upload Lab Files (.md)
@@ -262,7 +294,82 @@
             </div>
         </div>
 
-    </div>
+        </div><!-- end section-generator -->
+
+        <!-- ===== API QUOTA SECTION ===== -->
+        <div id="section-quota" style="display:none;">
+            <div style="font-size:12px;font-weight:600;color:var(--muted);letter-spacing:0.05em;text-transform:uppercase;margin-bottom:16px;">Real-time API Quota Status</div>
+
+            <!-- Reset time info -->
+            <div style="background:rgba(108,99,255,0.07);border:1px solid rgba(108,99,255,0.18);border-radius:12px;padding:12px 16px;margin-bottom:20px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+                <div style="font-size:13px;color:var(--muted);">
+                    🕐 Daily quota resets at <strong style="color:var(--text);">midnight UTC = 5:00 AM Pakistan Time (PKT)</strong>
+                </div>
+                <div style="font-size:12px;color:#43D9AD;" id="quotaCountdown"></div>
+            </div>
+
+            <!-- API Cards -->
+            <div style="display:flex;flex-direction:column;gap:14px;" id="quotaCards">
+
+                <!-- Gemini 1 -->
+                <div class="quota-card" id="qcard-gemini1">
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+                        <div style="display:flex;align-items:center;gap:10px;">
+                            <div style="width:36px;height:36px;border-radius:10px;background:rgba(67,217,173,0.12);display:flex;align-items:center;justify-content:center;">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="#43D9AD" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                            </div>
+                            <div>
+                                <div style="font-size:14px;font-weight:700;color:var(--text);">Gemini 1.5 Flash — Account 1</div>
+                                <div style="font-size:11px;color:var(--muted);">GEMINI_API_KEY · 1,500 req/day · 1M tokens/day</div>
+                            </div>
+                        </div>
+                        <button onclick="checkGeminiQuota(1)" style="background:rgba(67,217,173,0.1);border:1px solid rgba(67,217,173,0.25);color:#43D9AD;border-radius:8px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer;" onmouseover="this.style.background='rgba(67,217,173,0.2)'" onmouseout="this.style.background='rgba(67,217,173,0.1)'">Check</button>
+                    </div>
+                    <div id="qstatus-gemini1" style="font-size:12px;color:var(--muted);">Click Check to test this API key</div>
+                </div>
+
+                <!-- Gemini 2 -->
+                <div class="quota-card" id="qcard-gemini2">
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+                        <div style="display:flex;align-items:center;gap:10px;">
+                            <div style="width:36px;height:36px;border-radius:10px;background:rgba(108,99,255,0.12);display:flex;align-items:center;justify-content:center;">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="#a09aff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                            </div>
+                            <div>
+                                <div style="font-size:14px;font-weight:700;color:var(--text);">Gemini 1.5 Flash — Account 2</div>
+                                <div style="font-size:11px;color:var(--muted);">GEMINI_API_KEY_2 · 1,500 req/day · 1M tokens/day</div>
+                            </div>
+                        </div>
+                        <button onclick="checkGeminiQuota(2)" style="background:rgba(108,99,255,0.1);border:1px solid rgba(108,99,255,0.25);color:#a09aff;border-radius:8px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer;" onmouseover="this.style.background='rgba(108,99,255,0.2)'" onmouseout="this.style.background='rgba(108,99,255,0.1)'">Check</button>
+                    </div>
+                    <div id="qstatus-gemini2" style="font-size:12px;color:var(--muted);">Click Check to test this API key</div>
+                </div>
+
+                <!-- Groq -->
+                <div class="quota-card" id="qcard-groq">
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+                        <div style="display:flex;align-items:center;gap:10px;">
+                            <div style="width:36px;height:36px;border-radius:10px;background:rgba(255,101,132,0.12);display:flex;align-items:center;justify-content:center;">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="#FF6584" stroke-width="2"/><path d="M12 6v6l4 2" stroke="#FF6584" stroke-width="2" stroke-linecap="round"/></svg>
+                            </div>
+                            <div>
+                                <div style="font-size:14px;font-weight:700;color:var(--text);">Groq — Llama 3.1 8B</div>
+                                <div style="font-size:11px;color:var(--muted);">GROQ_API_KEY · 14,400 req/day · 500K tokens/day</div>
+                            </div>
+                        </div>
+                        <button onclick="checkGroqQuota()" style="background:rgba(255,101,132,0.1);border:1px solid rgba(255,101,132,0.25);color:#FF6584;border-radius:8px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer;" onmouseover="this.style.background='rgba(255,101,132,0.2)'" onmouseout="this.style.background='rgba(255,101,132,0.1)'">Check</button>
+                    </div>
+                    <div id="qstatus-groq" style="font-size:12px;color:var(--muted);">Click Check to test this API key</div>
+                </div>
+
+            </div>
+
+            <p style="font-size:11px;color:var(--muted);margin-top:16px;text-align:center;">
+                ⚠️ Exact remaining quota is not available via free API — Check button tests if key is active and working.
+            </p>
+        </div><!-- end section-quota -->
+
+    </div><!-- end glass card -->
 
     <!-- Footer -->
     <div class="fu2" style="margin-top:32px;padding:0 16px 28px;">
@@ -463,6 +570,79 @@ function resetAll() {
 }
 
 function escHtml(t) { const d=document.createElement('div'); d.textContent=t||''; return d.innerHTML; }
+
+// ── Tab switching ──
+function switchTab(tab) {
+    document.getElementById('section-generator').style.display = tab === 'generator' ? 'block' : 'none';
+    document.getElementById('section-quota').style.display     = tab === 'quota'     ? 'block' : 'none';
+    document.getElementById('tab-generator').classList.toggle('active', tab === 'generator');
+    document.getElementById('tab-quota').classList.toggle('active', tab === 'quota');
+    if (tab === 'quota') startCountdown();
+}
+
+// ── PKT Reset Countdown ──
+// Quota resets at midnight UTC = 05:00 AM Pakistan Standard Time (UTC+5)
+function startCountdown() {
+    function update() {
+        const el = document.getElementById('quotaCountdown');
+        if (!el) return;
+        const now = new Date();
+        // Next midnight UTC
+        const nextReset = new Date(Date.UTC(
+            now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 0, 0
+        ));
+        const diff = nextReset - now;
+        if (diff <= 0) { el.textContent = 'Resetting now...'; return; }
+        const h = Math.floor(diff / 3600000);
+        const m = Math.floor((diff % 3600000) / 60000);
+        const s = Math.floor((diff % 60000) / 1000);
+        const pad = n => String(n).padStart(2, '0');
+        el.textContent = `⏱ Resets in: ${pad(h)}h ${pad(m)}m ${pad(s)}s`;
+    }
+    update();
+    clearInterval(window._countdownTimer);
+    window._countdownTimer = setInterval(update, 1000);
+}
+
+// ── API Quota Check ──
+// Gemini: send a minimal test request and check response
+async function checkGeminiQuota(num) {
+    const statusEl = document.getElementById(`qstatus-gemini${num}`);
+    statusEl.innerHTML = '<span style="color:var(--muted);">⏳ Checking...</span>';
+
+    try {
+        const res = await fetch(`/api/quota-check?api=gemini${num === 2 ? '2' : ''}`);
+        const data = await res.json();
+        if (data.ok) {
+            statusEl.innerHTML = `<span style="color:#43D9AD;">✅ Active & working — responded in ${data.ms}ms</span>`;
+        } else if (data.exhausted) {
+            statusEl.innerHTML = `<span style="color:#FF6584;">❌ Quota exhausted for today — resets at 5:00 AM PKT</span>`;
+        } else {
+            statusEl.innerHTML = `<span style="color:#FFB86C;">⚠️ Error: ${escHtml(data.error || 'Unknown')}</span>`;
+        }
+    } catch (e) {
+        statusEl.innerHTML = `<span style="color:#FF6584;">❌ Request failed: ${escHtml(e.message)}</span>`;
+    }
+}
+
+async function checkGroqQuota() {
+    const statusEl = document.getElementById('qstatus-groq');
+    statusEl.innerHTML = '<span style="color:var(--muted);">⏳ Checking...</span>';
+
+    try {
+        const res = await fetch('/api/quota-check?api=groq');
+        const data = await res.json();
+        if (data.ok) {
+            statusEl.innerHTML = `<span style="color:#43D9AD;">✅ Active & working — responded in ${data.ms}ms</span>`;
+        } else if (data.exhausted) {
+            statusEl.innerHTML = `<span style="color:#FF6584;">❌ Rate limited — wait a minute or check tomorrow</span>`;
+        } else {
+            statusEl.innerHTML = `<span style="color:#FFB86C;">⚠️ Error: ${escHtml(data.error || 'Unknown')}</span>`;
+        }
+    } catch (e) {
+        statusEl.innerHTML = `<span style="color:#FF6584;">❌ Request failed: ${escHtml(e.message)}</span>`;
+    }
+}
 
 // Security
 (function(){
