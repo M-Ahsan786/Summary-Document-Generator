@@ -7,8 +7,7 @@ import {
     Document, Packer, Paragraph, TextRun,
     AlignmentType, BorderStyle, PageNumber,
     Header, Footer, ShadingType, ImageRun,
-    WidthType, TabStopType, TabStopPosition,
-    PositionalTab, PositionalTabAlignment, PositionalTabRelativeTo, PositionalTabLeader
+    TabStopType, TabStopPosition
 } from 'docx';
 
 // XtremeLabs logo (base64 PNG — embedded at build time)
@@ -244,61 +243,75 @@ ${trimmed}`;
 
 // ═══════════════════════════════════════════════
 // DOCX BUILDER
-// Fonts: Course title = Aptos 16pt bold center
-//        Section headings (Course Overview, Detailed Lab Summaries) = Times New Roman 14pt bold
-//        Sub-headings (Objective, Key Topics etc.) = Times New Roman 12pt bold
-//        Body text = Times New Roman 12pt
-// Footer: "Powered By:" + XtremeLabs logo
+// - Course title: Aptos 16pt bold centered, dark blue
+// - Section headings: Times New Roman 14pt bold, dark blue
+// - Lab titles + sub-headings: Times New Roman 12pt bold
+// - Body: Times New Roman 12pt
+// - Header: course name left + logo right
+// - Footer: "Powered By:" bold + logo centered
+// - Page border: professional double-line design
 // ═══════════════════════════════════════════════
 async function buildDocx(data, courseName) {
-    const BLACK     = '000000';
-    const DARK_GREY = '2F2F2F';
-    const MID_GREY  = 'CCCCCC';
-    const MUTED     = '555555';
+    const DARK_BLUE  = '1F3864';   // H1, section headings
+    const ACCENT     = '2E5FA3';   // lab title bar, left border
+    const DARK_GREY  = '2F2F2F';   // body text
+    const MID_GREY   = 'CCCCCC';   // dividers
+    const MUTED      = '555555';   // footer text
+    const WHITE      = 'FFFFFF';
 
-    // Decode logo
     const logoBuffer = Buffer.from(LOGO_B64, 'base64');
 
     const children = [];
 
-    // ── Course Title — Aptos 16pt bold centered ──
+    // ── Course Title — Aptos 16pt bold centered, dark blue ──
     children.push(
         new Paragraph({
             alignment: AlignmentType.CENTER,
-            spacing: { before: 0, after: 360 },
+            spacing: { before: 0, after: 160 },
             children: [
                 new TextRun({
                     text: courseName,
                     bold: true,
-                    size: 32,          // 16pt = 32 half-points
+                    size: 32,           // 16pt
                     font: 'Aptos',
-                    color: BLACK
+                    color: DARK_BLUE
                 })
             ]
+        }),
+        // Thin decorative rule under title
+        new Paragraph({
+            spacing: { before: 0, after: 360 },
+            border: { bottom: { style: BorderStyle.DOUBLE, size: 6, color: ACCENT } },
+            children: []
         })
     );
 
-    // ── Course Overview heading — Times New Roman 14pt bold ──
+    // ── Course Overview heading ──
     children.push(
         new Paragraph({
-            spacing: { before: 240, after: 160 },
-            border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: '2E2E2E' } },
+            spacing: { before: 200, after: 140 },
             children: [
                 new TextRun({
                     text: 'Course Overview',
                     bold: true,
-                    size: 28,          // 14pt
+                    size: 28,           // 14pt
                     font: 'Times New Roman',
-                    color: BLACK
+                    color: DARK_BLUE
                 })
             ]
         }),
+        // Underline rule
         new Paragraph({
-            spacing: { before: 120, after: 400 },
+            spacing: { before: 0, after: 120 },
+            border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: ACCENT } },
+            children: []
+        }),
+        new Paragraph({
+            spacing: { before: 100, after: 380 },
             children: [
                 new TextRun({
                     text: data.courseOverview || '',
-                    size: 24,          // 12pt
+                    size: 24,
                     font: 'Times New Roman',
                     color: DARK_GREY
                 })
@@ -306,20 +319,24 @@ async function buildDocx(data, courseName) {
         })
     );
 
-    // ── Detailed Lab Summaries heading — Times New Roman 14pt bold ──
+    // ── Detailed Lab Summaries heading ──
     children.push(
         new Paragraph({
-            spacing: { before: 200, after: 280 },
-            border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: '2E2E2E' } },
+            spacing: { before: 160, after: 140 },
             children: [
                 new TextRun({
                     text: 'Detailed Lab Summaries',
                     bold: true,
-                    size: 28,          // 14pt
+                    size: 28,           // 14pt
                     font: 'Times New Roman',
-                    color: BLACK
+                    color: DARK_BLUE
                 })
             ]
+        }),
+        new Paragraph({
+            spacing: { before: 0, after: 240 },
+            border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: ACCENT } },
+            children: []
         })
     );
 
@@ -327,27 +344,28 @@ async function buildDocx(data, courseName) {
     for (let i = 0; i < data.labs.length; i++) {
         const lab = data.labs[i];
 
-        // Lab title — Times New Roman 12pt bold, slight indent, top border line
+        // Lab title — left accent border + shaded background feel via indent
         children.push(
             new Paragraph({
-                spacing: { before: 280, after: 100 },
+                spacing: { before: 280, after: 120 },
                 border: {
-                    left: { style: BorderStyle.SINGLE, size: 12, color: '2E2E2E' }
+                    left:   { style: BorderStyle.THICK,  size: 18, color: ACCENT },
+                    bottom: { style: BorderStyle.SINGLE, size: 2,  color: MID_GREY }
                 },
-                indent: { left: 180 },
+                indent: { left: 200 },
                 children: [
                     new TextRun({
                         text: lab.title,
                         bold: true,
-                        size: 24,       // 12pt
+                        size: 24,
                         font: 'Times New Roman',
-                        color: BLACK
+                        color: DARK_BLUE
                     })
                 ]
             })
         );
 
-        // Four sub-sections — Times New Roman 12pt
+        // Four sub-sections
         const sections = [
             { label: 'Objective:',              value: lab.objective },
             { label: 'Key Topics Covered:',     value: lab.keyTopics },
@@ -361,18 +379,18 @@ async function buildDocx(data, courseName) {
             children.push(
                 new Paragraph({
                     spacing: { before: 80, after: isLast ? 160 : 60 },
-                    indent: { left: 360 },
+                    indent: { left: 400 },
                     children: [
                         new TextRun({
                             text: s.label + ' ',
                             bold: true,
-                            size: 24,   // 12pt
+                            size: 24,
                             font: 'Times New Roman',
-                            color: BLACK
+                            color: DARK_GREY
                         }),
                         new TextRun({
                             text: s.value || '',
-                            size: 24,   // 12pt
+                            size: 24,
                             font: 'Times New Roman',
                             color: DARK_GREY
                         })
@@ -381,7 +399,7 @@ async function buildDocx(data, courseName) {
             );
         }
 
-        // Thin divider between labs (except last)
+        // Divider between labs
         if (i < data.labs.length - 1) {
             children.push(
                 new Paragraph({
@@ -393,30 +411,59 @@ async function buildDocx(data, courseName) {
         }
     }
 
-    // ── Footer: "Powered By:" + logo ──
-    const footerChildren = [
-        new Paragraph({
-            alignment: AlignmentType.CENTER,
-            border: { top: { style: BorderStyle.SINGLE, size: 2, color: MID_GREY } },
-            spacing: { before: 80 },
-            children: [
-                new TextRun({
-                    text: 'Powered By:  ',
-                    size: 18,
-                    font: 'Times New Roman',
-                    color: MUTED
-                }),
-                new ImageRun({
-                    data: logoBuffer,
-                    type: 'png',
-                    transformation: {
-                        width: 100,    // px
-                        height: 22     // px — maintain aspect ratio
-                    }
-                })
-            ]
-        })
-    ];
+    // ── Header: course name left, logo right ──
+    const headerParagraph = new Paragraph({
+        border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: ACCENT } },
+        spacing: { after: 0 },
+        tabStops: [{ type: TabStopType.RIGHT, position: TabStopPosition.MAX }],
+        children: [
+            new TextRun({
+                text: courseName,
+                size: 18,
+                font: 'Times New Roman',
+                color: MUTED,
+                italics: true
+            }),
+            new TextRun({
+                text: '\t',
+                size: 18
+            }),
+            new ImageRun({
+                data: logoBuffer,
+                type: 'png',
+                transformation: { width: 80, height: 18 }
+            })
+        ]
+    });
+
+    // ── Footer: "Powered By:" bold + logo ──
+    const footerParagraph = new Paragraph({
+        alignment: AlignmentType.CENTER,
+        border: { top: { style: BorderStyle.SINGLE, size: 4, color: ACCENT } },
+        spacing: { before: 80 },
+        children: [
+            new TextRun({
+                text: 'Powered By:  ',
+                bold: true,
+                size: 18,
+                font: 'Times New Roman',
+                color: MUTED
+            }),
+            new ImageRun({
+                data: logoBuffer,
+                type: 'png',
+                transformation: { width: 90, height: 20 }
+            })
+        ]
+    });
+
+    // ── Page border — professional double outer border ──
+    const pageBorder = {
+        pageBorderTop:    { style: BorderStyle.DOUBLE, size: 12, color: DARK_BLUE, space: 24 },
+        pageBorderBottom: { style: BorderStyle.DOUBLE, size: 12, color: DARK_BLUE, space: 24 },
+        pageBorderLeft:   { style: BorderStyle.DOUBLE, size: 12, color: DARK_BLUE, space: 24 },
+        pageBorderRight:  { style: BorderStyle.DOUBLE, size: 12, color: DARK_BLUE, space: 24 }
+    };
 
     const doc = new Document({
         styles: {
@@ -428,11 +475,15 @@ async function buildDocx(data, courseName) {
             properties: {
                 page: {
                     size: { width: 12240, height: 15840 },
-                    margin: { top: 1080, right: 1080, bottom: 1200, left: 1080 }
+                    margin: { top: 1080, right: 1080, bottom: 1200, left: 1080 },
+                    borders: pageBorder
                 }
             },
+            headers: {
+                default: new Header({ children: [headerParagraph] })
+            },
             footers: {
-                default: new Footer({ children: footerChildren })
+                default: new Footer({ children: [footerParagraph] })
             },
             children
         }]
