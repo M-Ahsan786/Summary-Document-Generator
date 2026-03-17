@@ -256,17 +256,17 @@ async function buildDocx(data, courseName) {
     const ACCENT     = '2E5FA3';
     const DARK_GREY  = '2F2F2F';
     const MID_GREY   = 'CCCCCC';
-    const MUTED      = '555555';
+    const MUTED      = '1F3864';   // dark blue for footer text so bold is visible
 
     const logoBuffer = Buffer.from(LOGO_B64, 'base64');
     const children = [];
 
-    // ── Course Title — no extra blank paragraphs, border on the title itself ──
+    // ── Course Title — SINGLE thick border (DOUBLE was causing 2 lines) ──
     children.push(
         new Paragraph({
             alignment: AlignmentType.CENTER,
             spacing: { before: 0, after: 320 },
-            border: { bottom: { style: BorderStyle.DOUBLE, size: 8, color: ACCENT } },
+            border: { bottom: { style: BorderStyle.SINGLE, size: 18, color: ACCENT } },
             children: [
                 new TextRun({
                     text: courseName,
@@ -279,7 +279,7 @@ async function buildDocx(data, courseName) {
         })
     );
 
-    // ── Course Overview heading — border directly on heading paragraph ──
+    // ── Course Overview heading ──
     children.push(
         new Paragraph({
             spacing: { before: 240, after: 120 },
@@ -381,37 +381,44 @@ async function buildDocx(data, courseName) {
         }
     }
 
-    // ── Header: logo only on far right, no bottom border (avoids dash lines) ──
+    // ── Header: logo flush top-right corner ──
+    // spacing before:0 after:0, negative before to push to very top
     const headerParagraph = new Paragraph({
-        spacing: { before: 0, after: 0 },
+        spacing: { before: 0, after: 0, line: 240 },
         tabStops: [{ type: TabStopType.RIGHT, position: TabStopPosition.MAX }],
         children: [
             new TextRun({ text: '\t' }),
             new ImageRun({
                 data: logoBuffer,
                 type: 'png',
-                transformation: { width: 110, height: 25 }
+                transformation: { width: 120, height: 27 }
             })
         ]
     });
 
-    // ── Footer: Powered By bold + logo ──
+    // ── Footer: "Powered By:" — bold, dark color so it shows clearly ──
     const footerParagraph = new Paragraph({
         alignment: AlignmentType.CENTER,
         border: { top: { style: BorderStyle.SINGLE, size: 4, color: ACCENT } },
         spacing: { before: 80 },
         children: [
-            new TextRun({ text: 'Powered By:  ', bold: true, size: 18, font: 'Times New Roman', color: MUTED }),
-            new ImageRun({ data: logoBuffer, type: 'png', transformation: { width: 90, height: 20 } })
+            new TextRun({
+                text: 'Powered By:  ',
+                bold: true,
+                size: 20,
+                font: 'Times New Roman',
+                color: DARK_BLUE   // dark blue — clearly visible and bold
+            }),
+            new ImageRun({ data: logoBuffer, type: 'png', transformation: { width: 95, height: 21 } })
         ]
     });
 
-    // ── Page border — thick triple-line style for professional look ──
+    // ── Page border — space:1 makes border hug the page edge ──
     const pageBorder = {
-        pageBorderTop:    { style: BorderStyle.TRIPLE, size: 24, color: DARK_BLUE, space: 20 },
-        pageBorderBottom: { style: BorderStyle.TRIPLE, size: 24, color: DARK_BLUE, space: 20 },
-        pageBorderLeft:   { style: BorderStyle.TRIPLE, size: 24, color: DARK_BLUE, space: 20 },
-        pageBorderRight:  { style: BorderStyle.TRIPLE, size: 24, color: DARK_BLUE, space: 20 }
+        pageBorderTop:    { style: BorderStyle.TRIPLE, size: 24, color: DARK_BLUE, space: 1 },
+        pageBorderBottom: { style: BorderStyle.TRIPLE, size: 24, color: DARK_BLUE, space: 1 },
+        pageBorderLeft:   { style: BorderStyle.TRIPLE, size: 24, color: DARK_BLUE, space: 1 },
+        pageBorderRight:  { style: BorderStyle.TRIPLE, size: 24, color: DARK_BLUE, space: 1 }
     };
 
     const doc = new Document({
