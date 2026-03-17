@@ -297,6 +297,9 @@ function handleFiles(e) {
     const files = Array.from(e.target.files);
     if (!files.length) return;
 
+    // Always reset array on new selection — prevents old files mixing with new
+    uploadedFiles = [];
+
     const reads = files.map(f => new Promise(res => {
         const r = new FileReader();
         r.onload = ev => { uploadedFiles.push({ name: f.name, content: ev.target.result }); res(); };
