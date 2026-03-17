@@ -1,4 +1,4 @@
-// api/generate.js — Vercel Serverless Function
+// api/generate.js — Vercel Serverless Function 
 // Primary:  Gemini 1.5 Flash (Google) — 1M token/day free
 // Fallback: Groq Llama 3.3 70B       — 500K token/day free
 // DOCX generation: docx npm package
