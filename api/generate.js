@@ -413,7 +413,7 @@ async function buildDocx(data, courseName) {
         ]
     });
 
-    // ── Page border — space:1 makes border hug the page edge ──
+    // ── Page border — offsetFrom="page" added via XML patch below ──
     const pageBorder = {
         pageBorderTop:    { style: BorderStyle.TRIPLE, size: 24, color: DARK_BLUE, space: 1 },
         pageBorderBottom: { style: BorderStyle.TRIPLE, size: 24, color: DARK_BLUE, space: 1 },
@@ -439,5 +439,25 @@ async function buildDocx(data, courseName) {
         }]
     });
 
-    return await Packer.toBuffer(doc);
+    // ── Patch XML: add offsetFrom="page" to pgBorders so border hugs page edge ──
+    const rawBuffer = await Packer.toBuffer(doc);
+    return patchBorderOffsetFromPage(rawBuffer);
+}
+
+// Post-process the docx zip to inject offsetFrom="page" into pgBorders XML
+async function patchBorderOffsetFromPage(buffer) {
+    const JSZip = (await import('jszip')).default;
+    const zip = await JSZip.loadAsync(buffer);
+
+    const xmlPath = 'word/document.xml';
+    let xml = await zip.file(xmlPath).async('string');
+
+    // Add offsetFrom="page" to <w:pgBorders> tag if not already present
+    xml = xml.replace(
+        /<w:pgBorders(?![^>]*w:offsetFrom)/g,
+        '<w:pgBorders w:offsetFrom="page"'
+    );
+
+    zip.file(xmlPath, xml);
+    return await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
 }
