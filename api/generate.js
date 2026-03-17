@@ -252,74 +252,55 @@ ${trimmed}`;
 // - Page border: professional double-line design
 // ═══════════════════════════════════════════════
 async function buildDocx(data, courseName) {
-    const DARK_BLUE  = '1F3864';
-    const ACCENT     = '2E5FA3';
-    const DARK_GREY  = '2F2F2F';
-    const MID_GREY   = 'CCCCCC';
-    const MUTED      = '1F3864';   // dark blue for footer text so bold is visible
+    const DARK_BLUE      = '1F3864';
+    const ACCENT         = '2E5FA3';
+    const DARK_GREY      = '2F2F2F';
+    const MID_GREY       = 'CCCCCC';
+    // Light bg shading colors
+    const BG_SECTION     = 'D6E4F0';   // light blue for Course Overview / Detailed Lab Summaries
+    const BG_LAB         = 'EBF3FB';   // very light blue for lab title callout
 
     const logoBuffer = Buffer.from(LOGO_B64, 'base64');
     const children = [];
 
-    // ── Course Title — SINGLE thick border (DOUBLE was causing 2 lines) ──
+    // ── Course Title ──
     children.push(
         new Paragraph({
             alignment: AlignmentType.CENTER,
             spacing: { before: 0, after: 320 },
             border: { bottom: { style: BorderStyle.SINGLE, size: 18, color: ACCENT } },
             children: [
-                new TextRun({
-                    text: courseName,
-                    bold: true,
-                    size: 32,
-                    font: 'Aptos',
-                    color: DARK_BLUE
-                })
+                new TextRun({ text: courseName, bold: true, size: 32, font: 'Aptos', color: DARK_BLUE })
             ]
         })
     );
 
-    // ── Course Overview heading ──
+    // ── Course Overview heading — light bg shading ──
     children.push(
         new Paragraph({
             spacing: { before: 240, after: 120 },
-            border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: ACCENT } },
+            shading: { type: ShadingType.CLEAR, fill: BG_SECTION },
+            indent: { left: 120, right: 120 },
             children: [
-                new TextRun({
-                    text: 'Course Overview',
-                    bold: true,
-                    size: 28,
-                    font: 'Times New Roman',
-                    color: DARK_BLUE
-                })
+                new TextRun({ text: 'Course Overview', bold: true, size: 28, font: 'Times New Roman', color: DARK_BLUE })
             ]
         }),
         new Paragraph({
             spacing: { before: 120, after: 360 },
             children: [
-                new TextRun({
-                    text: data.courseOverview || '',
-                    size: 24,
-                    font: 'Times New Roman',
-                    color: DARK_GREY
-                })
+                new TextRun({ text: data.courseOverview || '', size: 24, font: 'Times New Roman', color: DARK_GREY })
             ]
         })
     );
 
-    // ── Detailed Lab Summaries heading ──
+    // ── Detailed Lab Summaries heading — light bg shading ──
     children.push(
         new Paragraph({
-            spacing: { before: 160, after: 120 },
-            border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: ACCENT } },
+            spacing: { before: 160, after: 200 },
+            shading: { type: ShadingType.CLEAR, fill: BG_SECTION },
+            indent: { left: 120, right: 120 },
             children: [
-                new TextRun({
-                    text: 'Detailed Lab Summaries',
-                    bold: true,
-                    size: 28,
-                    font: 'Times New Roman',
-                    color: DARK_BLUE
-                })
+                new TextRun({ text: 'Detailed Lab Summaries', bold: true, size: 28, font: 'Times New Roman', color: DARK_BLUE })
             ]
         })
     );
@@ -328,22 +309,17 @@ async function buildDocx(data, courseName) {
     for (let i = 0; i < data.labs.length; i++) {
         const lab = data.labs[i];
 
+        // Lab title callout — light bg + thick left border
         children.push(
             new Paragraph({
                 spacing: { before: 260, after: 100 },
+                shading: { type: ShadingType.CLEAR, fill: BG_LAB },
                 border: {
-                    left:   { style: BorderStyle.THICK,  size: 20, color: ACCENT },
-                    bottom: { style: BorderStyle.SINGLE, size: 2,  color: MID_GREY }
+                    left: { style: BorderStyle.THICK, size: 20, color: ACCENT }
                 },
-                indent: { left: 200 },
+                indent: { left: 200, right: 120 },
                 children: [
-                    new TextRun({
-                        text: lab.title,
-                        bold: true,
-                        size: 24,
-                        font: 'Times New Roman',
-                        color: DARK_BLUE
-                    })
+                    new TextRun({ text: lab.title, bold: true, size: 24, font: 'Times New Roman', color: DARK_BLUE })
                 ]
             })
         );
@@ -381,11 +357,10 @@ async function buildDocx(data, courseName) {
         }
     }
 
-    // ── Header: logo flush top-right corner ──
-    // spacing before:0 after:0, negative before to push to very top
+    // ── Header: logo on the right with small right indent to sit near page edge ──
     const headerParagraph = new Paragraph({
         spacing: { before: 0, after: 0, line: 240 },
-        tabStops: [{ type: TabStopType.RIGHT, position: TabStopPosition.MAX }],
+        tabStops: [{ type: TabStopType.RIGHT, position: 9260 }],
         children: [
             new TextRun({ text: '\t' }),
             new ImageRun({
@@ -396,24 +371,28 @@ async function buildDocx(data, courseName) {
         ]
     });
 
-    // ── Footer: "Powered By:" — bold, dark color so it shows clearly ──
+    // ── Footer: "Powered By:" + logo — use vertical alignment to fix logo rising ──
     const footerParagraph = new Paragraph({
         alignment: AlignmentType.CENTER,
         border: { top: { style: BorderStyle.SINGLE, size: 4, color: ACCENT } },
-        spacing: { before: 80 },
+        spacing: { before: 80, after: 0, line: 360, lineRule: 'auto' },
         children: [
             new TextRun({
                 text: 'Powered By:  ',
                 bold: true,
                 size: 20,
                 font: 'Times New Roman',
-                color: DARK_BLUE   // dark blue — clearly visible and bold
+                color: DARK_BLUE
             }),
-            new ImageRun({ data: logoBuffer, type: 'png', transformation: { width: 95, height: 21 } })
+            new ImageRun({
+                data: logoBuffer,
+                type: 'png',
+                transformation: { width: 95, height: 21 },
+            })
         ]
     });
 
-    // ── Page border — offsetFrom="page" added via XML patch below ──
+    // ── Page border ──
     const pageBorder = {
         pageBorderTop:    { style: BorderStyle.TRIPLE, size: 24, color: DARK_BLUE, space: 1 },
         pageBorderBottom: { style: BorderStyle.TRIPLE, size: 24, color: DARK_BLUE, space: 1 },
@@ -439,25 +418,45 @@ async function buildDocx(data, courseName) {
         }]
     });
 
-    // ── Patch XML: add offsetFrom="page" to pgBorders so border hugs page edge ──
+    // ── Patch XML: offsetFrom="page" + fix logo vertical alignment in footer ──
     const rawBuffer = await Packer.toBuffer(doc);
-    return patchBorderOffsetFromPage(rawBuffer);
+    return patchDocxXml(rawBuffer);
 }
 
-// Post-process the docx zip to inject offsetFrom="page" into pgBorders XML
-async function patchBorderOffsetFromPage(buffer) {
+// Post-process docx XML:
+// 1. offsetFrom="page" — border hugs page edge
+// 2. Fix logo vertical baseline in footer (distT=0 so image sits on text baseline)
+async function patchDocxXml(buffer) {
     const JSZip = (await import('jszip')).default;
     const zip = await JSZip.loadAsync(buffer);
 
-    const xmlPath = 'word/document.xml';
-    let xml = await zip.file(xmlPath).async('string');
-
-    // Add offsetFrom="page" to <w:pgBorders> tag if not already present
-    xml = xml.replace(
+    // Patch document.xml — page border offsetFrom
+    const docXmlPath = 'word/document.xml';
+    let docXml = await zip.file(docXmlPath).async('string');
+    docXml = docXml.replace(
         /<w:pgBorders(?![^>]*w:offsetFrom)/g,
         '<w:pgBorders w:offsetFrom="page"'
     );
+    zip.file(docXmlPath, docXml);
 
-    zip.file(xmlPath, xml);
+    // Patch footer XML — fix logo vertical position (distT/distB to 0)
+    const footerFiles = Object.keys(zip.files).filter(f => f.startsWith('word/footer'));
+    for (const fPath of footerFiles) {
+        let fXml = await zip.file(fPath).async('string');
+        // Set distT="0" distB="0" on inline drawing so image aligns with text baseline
+        fXml = fXml.replace(
+            /<wp:inline([^>]*)>/g,
+            (match, attrs) => {
+                let updated = attrs
+                    .replace(/distT="[^"]*"/, 'distT="0"')
+                    .replace(/distB="[^"]*"/, 'distB="0"');
+                if (!updated.includes('distT=')) updated += ' distT="0"';
+                if (!updated.includes('distB=')) updated += ' distB="0"';
+                return `<wp:inline${updated}>`;
+            }
+        );
+        zip.file(fPath, fXml);
+    }
+
     return await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
 }
