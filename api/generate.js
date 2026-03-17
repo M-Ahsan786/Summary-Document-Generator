@@ -48,13 +48,13 @@ export default async function handler(req, res) {
             `=== LAB FILE ${i + 1}: ${f.name} ===\n${f.content}`
         ).join('\n\n');
 
-        const prompt = buildPrompt(files.length, courseName, combinedContent);
-
         let summaryData = null;
         let usedApi = '';
 
         if (geminiKey) {
             try {
+                // Gemini: 1M context — use up to 200K chars
+                const prompt = buildPrompt(files.length, courseName, combinedContent, 200000);
                 summaryData = await callGemini(geminiKey, prompt);
                 usedApi = 'Gemini';
             } catch (geminiErr) {
@@ -65,6 +65,8 @@ export default async function handler(req, res) {
 
         if (!summaryData && groqKey) {
             try {
+                // Groq llama3-70b-8192: 8K context — trim to 20K chars (~6K tokens for content)
+                const prompt = buildPrompt(files.length, courseName, combinedContent, 20000);
                 summaryData = await callGroq(groqKey, prompt);
                 usedApi = 'Groq';
             } catch (groqErr) {
@@ -153,6 +155,7 @@ async function callGemini(apiKey, prompt) {
 
 // ═══════════════════════════════════════════════
 // GROQ API CALL
+// Using llama-3.1-8b-instant — 131K context, 6000 TPM free
 // ═══════════════════════════════════════════════
 async function callGroq(apiKey, prompt) {
     const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -162,7 +165,7 @@ async function callGroq(apiKey, prompt) {
             'Authorization': `Bearer ${apiKey}`
         },
         body: JSON.stringify({
-            model: 'llama-3.3-70b-versatile',
+            model: 'llama3-70b-8192',
             max_tokens: 8000,
             temperature: 0.4,
             messages: [
@@ -190,11 +193,12 @@ async function callGroq(apiKey, prompt) {
 
 // ═══════════════════════════════════════════════
 // PROMPT BUILDER
+// Gemini: 200K chars limit (1M token context)
+// Groq:   20K chars limit (8K token context)
 // ═══════════════════════════════════════════════
-function buildPrompt(fileCount, courseName, content) {
-    const MAX_CHARS = 200000;
-    const trimmed = content.length > MAX_CHARS
-        ? content.substring(0, MAX_CHARS) + '\n\n...[remaining files truncated due to length]'
+function buildPrompt(fileCount, courseName, content, maxChars = 200000) {
+    const trimmed = content.length > maxChars
+        ? content.substring(0, maxChars) + '\n\n...[remaining files truncated due to length]'
         : content;
 
     return `I have ${fileCount} Markdown files containing labs for the "${courseName}" course. I need you to analyze all of them in detail and generate a professional summary document for the course.
