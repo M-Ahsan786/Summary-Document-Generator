@@ -256,52 +256,52 @@ async function buildDocx(data, courseName) {
     const ACCENT         = '2E5FA3';
     const DARK_GREY      = '2F2F2F';
     const MID_GREY       = 'CCCCCC';
-    const SECTION_GREY   = 'E8E8E8';   // light grey bg for section headings
-    const SECTION_BORDER = '444444';   // dark grey left border for section headings
-    const BG_LAB         = 'EBF3FB';   // very light blue for lab title callout
+    const SECTION_GREY   = 'E8E8E8';
+    const SECTION_BORDER = '444444';
+    const BG_LAB         = 'EBF3FB';
 
     const logoBuffer = Buffer.from(LOGO_B64, 'base64');
     const children = [];
 
-    // ── Course Title — centered, no indent ──
+    // ── Course Title — size 18pt (36 half-points) ──
     children.push(
         new Paragraph({
             alignment: AlignmentType.CENTER,
             spacing: { before: 0, after: 320 },
             border: { bottom: { style: BorderStyle.SINGLE, size: 18, color: ACCENT } },
             children: [
-                new TextRun({ text: courseName, bold: true, size: 32, font: 'Aptos', color: DARK_BLUE })
+                new TextRun({ text: courseName, bold: true, size: 36, font: 'Aptos', color: DARK_BLUE })
             ]
         })
     );
 
-    // ── Course Overview heading — grey bg, thick dark left border, taller callout ──
+    // ── Course Overview — no left indent (flush left), taller callout ──
     children.push(
         new Paragraph({
-            spacing: { before: 280, after: 280 },   // taller top+bottom padding
+            spacing: { before: 340, after: 340 },
             shading: { type: ShadingType.CLEAR, fill: SECTION_GREY },
             border: { left: { style: BorderStyle.THICK, size: 24, color: SECTION_BORDER } },
-            indent: { left: 200, right: 0 },         // left indent matches lab titles
+            indent: { left: 0, right: 0 },
             children: [
                 new TextRun({ text: 'Course Overview', bold: true, size: 28, font: 'Times New Roman', color: DARK_GREY })
             ]
         }),
         new Paragraph({
             spacing: { before: 140, after: 360 },
-            indent: { left: 200 },                   // aligned with heading left edge
+            indent: { left: 200 },
             children: [
                 new TextRun({ text: data.courseOverview || '', size: 24, font: 'Times New Roman', color: DARK_GREY })
             ]
         })
     );
 
-    // ── Detailed Lab Summaries heading — same style ──
+    // ── Detailed Lab Summaries — same flush left, taller callout ──
     children.push(
         new Paragraph({
-            spacing: { before: 280, after: 280 },
+            spacing: { before: 340, after: 340 },
             shading: { type: ShadingType.CLEAR, fill: SECTION_GREY },
             border: { left: { style: BorderStyle.THICK, size: 24, color: SECTION_BORDER } },
-            indent: { left: 200, right: 0 },
+            indent: { left: 0, right: 0 },
             children: [
                 new TextRun({ text: 'Detailed Lab Summaries', bold: true, size: 28, font: 'Times New Roman', color: DARK_GREY })
             ]
@@ -312,8 +312,6 @@ async function buildDocx(data, courseName) {
     for (let i = 0; i < data.labs.length; i++) {
         const lab = data.labs[i];
 
-        // Lab title callout — light blue bg, thick accent left border
-        // left indent = 200 (same as section headings → all main headings aligned)
         children.push(
             new Paragraph({
                 spacing: { before: 260, after: 100 },
@@ -339,8 +337,7 @@ async function buildDocx(data, courseName) {
             children.push(
                 new Paragraph({
                     spacing: { before: 80, after: isLast ? 140 : 60 },
-                    // sub-label aligned at 400, consistent across all labs
-                    indent: { left: 400, hanging: 0 },
+                    indent: { left: 400 },
                     children: [
                         new TextRun({ text: s.label + ' ', bold: true, size: 24, font: 'Times New Roman', color: DARK_GREY }),
                         new TextRun({ text: s.value || '', size: 24, font: 'Times New Roman', color: DARK_GREY })
@@ -360,17 +357,17 @@ async function buildDocx(data, courseName) {
         }
     }
 
-    // ── Header: logo right ──
+    // ── Header: logo shifted further right, bigger size ──
     const headerParagraph = new Paragraph({
         spacing: { before: 0, after: 0, line: 240 },
-        tabStops: [{ type: TabStopType.RIGHT, position: 9260 }],
+        tabStops: [{ type: TabStopType.RIGHT, position: 9720 }],
         children: [
             new TextRun({ text: '\t' }),
-            new ImageRun({ data: logoBuffer, type: 'png', transformation: { width: 120, height: 27 } })
+            new ImageRun({ data: logoBuffer, type: 'png', transformation: { width: 140, height: 32 } })
         ]
     });
 
-    // ── Footer: Powered By bold + logo ──
+    // ── Footer ──
     const footerParagraph = new Paragraph({
         alignment: AlignmentType.CENTER,
         border: { top: { style: BorderStyle.SINGLE, size: 4, color: ACCENT } },
@@ -381,7 +378,6 @@ async function buildDocx(data, courseName) {
         ]
     });
 
-    // ── Page border ──
     const pageBorder = {
         pageBorderTop:    { style: BorderStyle.TRIPLE, size: 24, color: DARK_BLUE, space: 1 },
         pageBorderBottom: { style: BorderStyle.TRIPLE, size: 24, color: DARK_BLUE, space: 1 },
