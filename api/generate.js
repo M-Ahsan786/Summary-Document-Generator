@@ -204,15 +204,26 @@ function extractLabTitle(content, filename, fallbackNum) {
 // ═══════════════════════════════════════════════
 function parseJsonSafe(raw) {
     if (!raw || raw.trim() === '') throw new Error('Empty response from AI');
+
     let cleaned = raw
         .replace(/^```json\s*/i, '')
         .replace(/^```\s*/i, '')
         .replace(/```\s*$/i, '')
         .trim();
+
     const start = cleaned.indexOf('{');
     const end   = cleaned.lastIndexOf('}');
-    if (start === -1 || end === -1) throw new Error('No JSON object found in AI response');
-    return JSON.parse(cleaned.substring(start, end + 1));
+
+    if (start === -1 || end === -1) {
+        // Log first 200 chars to help debug
+        throw new Error(`AI returned non-JSON: "${cleaned.substring(0, 200)}"`);
+    }
+
+    try {
+        return JSON.parse(cleaned.substring(start, end + 1));
+    } catch (e) {
+        throw new Error(`JSON parse failed: ${e.message}. Raw start: "${cleaned.substring(start, start + 100)}"`);
+    }
 }
 
 // ═══════════════════════════════════════════════
@@ -225,11 +236,18 @@ async function callGemini(apiKey, prompt) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: { temperature: 0.4, maxOutputTokens: 8192 },
-            systemInstruction: { parts: [{ text: 'You are a professional technical writer. Always respond with valid JSON only — no markdown fences, no explanation.' }] }
+            generationConfig: {
+                temperature: 0.4,
+                maxOutputTokens: 8192
+            },
+            systemInstruction: {
+                parts: [{ text: 'You are a professional technical writer. Always respond with valid JSON only — no markdown fences, no explanation, no extra text before or after the JSON.' }]
+            }
         })
     });
+
     const rawBody = await res.text();
+
     if (!res.ok) {
         let errMsg = `Gemini API error ${res.status}`;
         try { errMsg = JSON.parse(rawBody).error?.message || errMsg; } catch (_) {}
@@ -237,11 +255,20 @@ async function callGemini(apiKey, prompt) {
             throw new Error(`Gemini quota exceeded: ${errMsg}`);
         throw new Error(errMsg);
     }
+
     const data = JSON.parse(rawBody);
     const candidate = data.candidates?.[0];
+
     if (!candidate) throw new Error('Gemini returned no candidates');
     if (candidate.finishReason === 'SAFETY') throw new Error('Gemini blocked for safety');
-    return parseJsonSafe(candidate.content?.parts?.[0]?.text || '');
+
+    // MAX_TOKENS = response was cut off — treat as quota-style error so next key is tried
+    if (candidate.finishReason === 'MAX_TOKENS') {
+        throw new Error('Gemini response truncated (MAX_TOKENS) — try with fewer files per batch');
+    }
+
+    const rawText = candidate.content?.parts?.[0]?.text || '';
+    return parseJsonSafe(rawText);
 }
 
 // ═══════════════════════════════════════════════
