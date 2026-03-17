@@ -236,10 +236,7 @@ async function callGemini(apiKey, prompt) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: {
-                temperature: 0.4,
-                maxOutputTokens: 8192
-            },
+            generationConfig: { temperature: 0.4, maxOutputTokens: 8192 },
             systemInstruction: {
                 parts: [{ text: 'You are a professional technical writer. Always respond with valid JSON only — no markdown fences, no explanation, no extra text before or after the JSON.' }]
             }
@@ -248,24 +245,23 @@ async function callGemini(apiKey, prompt) {
 
     const rawBody = await res.text();
 
+    // Safe parse — rawBody might be HTML or plain text on errors
+    let data = null;
+    try { data = JSON.parse(rawBody); } catch (_) {
+        throw new Error(`Gemini returned non-JSON response (status ${res.status}): ${rawBody.substring(0, 150)}`);
+    }
+
     if (!res.ok) {
-        let errMsg = `Gemini API error ${res.status}`;
-        try { errMsg = JSON.parse(rawBody).error?.message || errMsg; } catch (_) {}
+        const errMsg = data?.error?.message || `Gemini API error ${res.status}`;
         if (res.status === 429 || errMsg.includes('quota') || errMsg.includes('RESOURCE_EXHAUSTED'))
             throw new Error(`Gemini quota exceeded: ${errMsg}`);
         throw new Error(errMsg);
     }
 
-    const data = JSON.parse(rawBody);
     const candidate = data.candidates?.[0];
-
     if (!candidate) throw new Error('Gemini returned no candidates');
     if (candidate.finishReason === 'SAFETY') throw new Error('Gemini blocked for safety');
-
-    // MAX_TOKENS = response was cut off — treat as quota-style error so next key is tried
-    if (candidate.finishReason === 'MAX_TOKENS') {
-        throw new Error('Gemini response truncated (MAX_TOKENS) — try with fewer files per batch');
-    }
+    if (candidate.finishReason === 'MAX_TOKENS') throw new Error('Gemini MAX_TOKENS — response truncated');
 
     const rawText = candidate.content?.parts?.[0]?.text || '';
     return parseJsonSafe(rawText);
