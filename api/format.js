@@ -258,7 +258,7 @@ async function buildFormattedDocx(data, opts = {}) {
             } : {}),
             children: [
                 new TextRun({
-                    text: courseName, bold: true, size: 40,
+                    text: `Course Title: ${courseName}`, bold: true, size: 40,
                     font: opts.titleStyle ? 'Aptos' : 'Times New Roman',
                     color: opts.titleStyle ? DARK_BLUE : DARK_GREY
                 })
