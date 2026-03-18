@@ -463,7 +463,7 @@ async function buildDocx(data, courseName) {
         tabStops: [{ type: TabStopType.RIGHT, position: 10200 }],
         children: [
             new TextRun({ text: '\t' }),
-            new ImageRun({ data: logoBuffer, type: 'png', transformation: { width: 140, height: 32 } })
+            new ImageRun({ data: logoBuffer, type: 'jpg', transformation: { width: 140, height: 32 } })
         ]
     });
 
@@ -474,7 +474,7 @@ async function buildDocx(data, courseName) {
         spacing: { before: 80, after: 0, line: 360, lineRule: 'auto' },
         children: [
             new TextRun({ text: 'Powered By:  ', bold: true, size: 20, font: 'Times New Roman', color: DARK_BLUE }),
-            new ImageRun({ data: logoBuffer, type: 'png', transformation: { width: 95, height: 21 } })
+            new ImageRun({ data: logoBuffer, type: 'jpg', transformation: { width: 95, height: 21 } })
         ]
     });
 
