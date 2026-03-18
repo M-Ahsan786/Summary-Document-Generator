@@ -301,11 +301,14 @@
             <div style="font-size:12px;font-weight:600;color:var(--muted);letter-spacing:0.05em;text-transform:uppercase;margin-bottom:16px;">Real-time API Quota Status</div>
 
             <!-- Reset time info -->
-            <div style="background:rgba(108,99,255,0.07);border:1px solid rgba(108,99,255,0.18);border-radius:12px;padding:12px 16px;margin-bottom:20px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
-                <div style="font-size:13px;color:var(--muted);">
-                    🕐 Daily quota resets at <strong style="color:var(--text);">midnight UTC = 5:00 AM Pakistan Time (PKT)</strong>
+            <div style="background:rgba(108,99,255,0.07);border:1px solid rgba(108,99,255,0.18);border-radius:12px;padding:12px 16px;margin-bottom:20px;">
+                <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:6px;">
+                    <div style="font-size:13px;color:var(--muted);">
+                        🕐 Quota resets daily at <strong style="color:var(--text);">midnight UTC = 5:00 AM PKT</strong>
+                    </div>
+                    <div style="font-size:12px;font-weight:600;" id="quotaCountdown"></div>
                 </div>
-                <div style="font-size:12px;color:#43D9AD;" id="quotaCountdown"></div>
+                <div style="font-size:12px;color:#a09aff;font-weight:500;" id="quotaResetLabel"></div>
             </div>
 
             <!-- API Cards -->
@@ -581,22 +584,66 @@ function switchTab(tab) {
 }
 
 // ── PKT Reset Countdown ──
-// Quota resets at midnight UTC = 05:00 AM Pakistan Standard Time (UTC+5)
+// Google/Groq quota resets at midnight UTC = 05:00 AM PKT (UTC+5)
+function getNextResetUTC() {
+    const now = new Date();
+    // Midnight UTC tonight
+    const midnightTonight = new Date(Date.UTC(
+        now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0
+    ));
+    // If we're already past tonight's midnight, use tomorrow's
+    const next = midnightTonight <= now
+        ? new Date(midnightTonight.getTime() + 86400000)
+        : midnightTonight;
+    return next;
+}
+
+function formatResetPKT(utcDate) {
+    // PKT = UTC+5, no DST
+    const pktMs = utcDate.getTime() + (5 * 3600000);
+    const pkt = new Date(pktMs);
+    const days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const day = days[pkt.getUTCDay()];
+    const date = pkt.getUTCDate();
+    const month = months[pkt.getUTCMonth()];
+    const year = pkt.getUTCFullYear();
+    const h = String(pkt.getUTCHours()).padStart(2,'0');
+    const m = String(pkt.getUTCMinutes()).padStart(2,'0');
+    return `${day}, ${date} ${month} ${year} at ${h}:${m} PKT`;
+}
+
 function startCountdown() {
     function update() {
         const el = document.getElementById('quotaCountdown');
+        const labelEl = document.getElementById('quotaResetLabel');
         if (!el) return;
+
         const now = new Date();
-        // Next midnight UTC
-        const nextReset = new Date(Date.UTC(
-            now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 0, 0
-        ));
+        const nextReset = getNextResetUTC();
         const diff = nextReset - now;
-        if (diff <= 0) { el.textContent = 'Resetting now...'; return; }
+
+        // Update reset label
+        if (labelEl) {
+            labelEl.textContent = `Resets: ${formatResetPKT(nextReset)}`;
+        }
+
+        if (diff <= 0) {
+            el.textContent = '🔄 Resetting now — refresh page!';
+            el.style.color = '#43D9AD';
+            return;
+        }
+
         const h = Math.floor(diff / 3600000);
         const m = Math.floor((diff % 3600000) / 60000);
         const s = Math.floor((diff % 60000) / 1000);
         const pad = n => String(n).padStart(2, '0');
+
+        if (h < 1) {
+            el.style.color = '#FFB86C'; // orange when less than 1 hour
+        } else {
+            el.style.color = '#43D9AD';
+        }
         el.textContent = `⏱ Resets in: ${pad(h)}h ${pad(m)}m ${pad(s)}s`;
     }
     update();
@@ -605,7 +652,6 @@ function startCountdown() {
 }
 
 // ── API Quota Check ──
-// Gemini: send a minimal test request and check response
 async function checkGeminiQuota(num) {
     const statusEl = document.getElementById(`qstatus-gemini${num}`);
     statusEl.innerHTML = '<span style="color:var(--muted);">⏳ Checking...</span>';
@@ -614,9 +660,10 @@ async function checkGeminiQuota(num) {
         const res = await fetch(`/api/quota-check?api=gemini${num === 2 ? '2' : ''}`);
         const data = await res.json();
         if (data.ok) {
-            statusEl.innerHTML = `<span style="color:#43D9AD;">✅ Active & working — responded in ${data.ms}ms</span>`;
+            statusEl.innerHTML = `<span style="color:#43D9AD;">✅ Quota available — Active & working (${data.ms}ms)</span>`;
         } else if (data.exhausted) {
-            statusEl.innerHTML = `<span style="color:#FF6584;">❌ Quota exhausted for today — resets at 5:00 AM PKT</span>`;
+            const nextReset = getNextResetUTC();
+            statusEl.innerHTML = `<span style="color:#FF6584;">❌ Quota exhausted — Available again: <strong>${formatResetPKT(nextReset)}</strong></span>`;
         } else {
             statusEl.innerHTML = `<span style="color:#FFB86C;">⚠️ Error: ${escHtml(data.error || 'Unknown')}</span>`;
         }
@@ -633,9 +680,9 @@ async function checkGroqQuota() {
         const res = await fetch('/api/quota-check?api=groq');
         const data = await res.json();
         if (data.ok) {
-            statusEl.innerHTML = `<span style="color:#43D9AD;">✅ Active & working — responded in ${data.ms}ms</span>`;
+            statusEl.innerHTML = `<span style="color:#43D9AD;">✅ Quota available — Active & working (${data.ms}ms)</span>`;
         } else if (data.exhausted) {
-            statusEl.innerHTML = `<span style="color:#FF6584;">❌ Rate limited — wait a minute or check tomorrow</span>`;
+            statusEl.innerHTML = `<span style="color:#FF6584;">❌ Rate limited — wait ~1 minute and try again</span>`;
         } else {
             statusEl.innerHTML = `<span style="color:#FFB86C;">⚠️ Error: ${escHtml(data.error || 'Unknown')}</span>`;
         }
