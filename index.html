@@ -376,19 +376,24 @@
         <!-- ===== FORMAT IMPLEMENTOR SECTION ===== -->
         <div id="section-format" style="display:none;">
             <div class="stag" style="margin-bottom:8px;">🎨&nbsp; Format Implementor</div>
-            <p style="color:var(--muted);font-size:13px;margin-bottom:22px;">Upload your existing summary <strong>.docx</strong> file — tool will extract all content and apply our standard format automatically.</p>
+            <p style="color:var(--muted);font-size:13px;margin-bottom:22px;">Upload one or more existing summary <strong>.docx</strong> files — tool will apply our standard format to each one.</p>
 
             <!-- Upload zone -->
             <label class="upload-zone p-7" id="fmtUploadZone" style="margin-bottom:20px;cursor:pointer;">
                 <div style="width:52px;height:52px;border-radius:14px;background:rgba(255,101,132,0.12);display:flex;align-items:center;justify-content:center;margin-bottom:12px;">
                     <svg width="26" height="26" fill="none" stroke="#FF6584" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
                 </div>
-                <div style="font-weight:700;font-size:16px;margin-bottom:4px;">Upload Summary Document</div>
-                <div style="color:var(--muted);font-size:13px;margin-bottom:16px;">Click to select your <strong>.docx</strong> file</div>
-                <input type="file" id="fmtFileInput" accept=".docx" style="display:none;" onchange="fmtHandleFile(event)">
-                <div style="background:linear-gradient(135deg,#FF6584,#ff8fa3);color:white;padding:9px 26px;border-radius:10px;font-size:14px;font-weight:600;box-shadow:0 4px 14px rgba(255,101,132,0.3);">Choose File</div>
-                <div id="fmtFileName" style="margin-top:10px;font-size:13px;color:var(--muted);"></div>
+                <div style="font-weight:700;font-size:16px;margin-bottom:4px;">Upload Summary Documents</div>
+                <div style="color:var(--muted);font-size:13px;margin-bottom:16px;">Click to select one or more <strong>.docx</strong> files</div>
+                <input type="file" id="fmtFileInput" accept=".docx" multiple style="display:none;" onchange="fmtHandleFiles(event)">
+                <div style="background:linear-gradient(135deg,#FF6584,#ff8fa3);color:white;padding:9px 26px;border-radius:10px;font-size:14px;font-weight:600;box-shadow:0 4px 14px rgba(255,101,132,0.3);">Choose Files</div>
             </label>
+
+            <!-- File chips -->
+            <div id="fmtChipsWrap" style="display:none;margin-bottom:18px;">
+                <div style="font-size:12px;color:var(--muted);margin-bottom:8px;" id="fmtChipsLabel"></div>
+                <div id="fmtChipsContainer" style="display:flex;flex-wrap:wrap;gap:7px;"></div>
+            </div>
 
             <!-- Apply button -->
             <div style="text-align:center;margin-bottom:22px;">
@@ -404,20 +409,25 @@
                 <p id="fmtProgressText" style="color:var(--muted);font-size:13px;margin-top:8px;text-align:center;"></p>
             </div>
 
-            <!-- Result -->
+            <!-- Results -->
             <div id="fmtResult" style="display:none;">
-                <div class="preview-card">
-                    <div class="preview-header">
-                        <span style="font-size:13px;font-weight:600;color:var(--muted);display:flex;align-items:center;gap:7px;">
-                            <svg width="16" height="16" fill="none" stroke="#43D9AD" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                            <span id="fmtResultLabel">Formatted document ready</span>
-                        </span>
-                        <button class="btn-dl docx" onclick="fmtDownload()">
-                            <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
-                            Download .docx
-                        </button>
+                <div style="font-size:12px;font-weight:600;color:var(--muted);letter-spacing:0.05em;text-transform:uppercase;margin-bottom:12px;">Formatted Files</div>
+                <div style="display:grid;grid-template-columns:260px 1fr;gap:14px;align-items:start;">
+                    <!-- File list -->
+                    <div id="fmtResultList" style="display:flex;flex-direction:column;gap:8px;"></div>
+                    <!-- Preview -->
+                    <div class="preview-card">
+                        <div class="preview-header">
+                            <span style="font-size:13px;font-weight:600;color:var(--muted);display:flex;align-items:center;gap:7px;">
+                                <svg width="16" height="16" fill="none" stroke="#43D9AD" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                                <span id="fmtPreviewTitle">Select a file to preview</span>
+                            </span>
+                            <div id="fmtPreviewActions"></div>
+                        </div>
+                        <div style="padding:18px;max-height:380px;overflow-y:auto;" id="fmtPreview">
+                            <p style="color:var(--muted);font-size:13px;">Select a file from the list to preview</p>
+                        </div>
                     </div>
-                    <div style="padding:18px;max-height:380px;overflow-y:auto;" id="fmtPreview"></div>
                 </div>
             </div>
         </div><!-- end section-format -->
@@ -606,20 +616,45 @@ function downloadDocx() {
 
 // ── Reset ──
 function resetAll() {
-    uploadedFiles = [];
-    generatedDocx = null;
-    generatedFilename = '';
-    document.getElementById('mdInput').value = '';
-    document.getElementById('courseNameInput').value = '';
-    document.getElementById('fileChips').style.display = 'none';
-    document.getElementById('chipsContainer').innerHTML = '';
-    document.getElementById('uploadZone').classList.remove('loaded');
-    document.getElementById('progressContainer').style.display = 'none';
-    document.getElementById('resultSection').style.display = 'none';
-    document.getElementById('previewContent').innerHTML = '';
-    const btn = document.getElementById('genBtn');
-    btn.disabled = true;
-    btn.innerHTML = '<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg> Generate Summary Document';
+    const currentTab = document.getElementById('tab-generator').classList.contains('active') ? 'generator'
+        : document.getElementById('tab-format').classList.contains('active') ? 'format'
+        : 'quota';
+
+    if (currentTab === 'generator') {
+        uploadedFiles = [];
+        generatedDocx = null;
+        generatedFilename = '';
+        document.getElementById('mdInput').value = '';
+        document.getElementById('courseNameInput').value = '';
+        document.getElementById('fileChips').style.display = 'none';
+        document.getElementById('chipsContainer').innerHTML = '';
+        document.getElementById('uploadZone').classList.remove('loaded');
+        document.getElementById('progressContainer').style.display = 'none';
+        document.getElementById('resultSection').style.display = 'none';
+        document.getElementById('previewContent').innerHTML = '';
+        const btn = document.getElementById('genBtn');
+        btn.disabled = true;
+        btn.innerHTML = '<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg> Generate Summary Document';
+
+    } else if (currentTab === 'format') {
+        fmtFiles    = [];
+        fmtResults  = [];
+        fmtActiveIdx = -1;
+        document.getElementById('fmtFileInput').value = '';
+        document.getElementById('fmtChipsWrap').style.display = 'none';
+        document.getElementById('fmtChipsContainer').innerHTML = '';
+        document.getElementById('fmtUploadZone').classList.remove('loaded');
+        document.getElementById('fmtProgress').style.display = 'none';
+        document.getElementById('fmtProgressBar').style.width = '0%';
+        document.getElementById('fmtResult').style.display = 'none';
+        document.getElementById('fmtResultList').innerHTML = '';
+        document.getElementById('fmtPreviewTitle').textContent = 'Select a file to preview';
+        document.getElementById('fmtPreview').innerHTML = '<p style="color:var(--muted);font-size:13px;">Select a file from the list to preview</p>';
+        document.getElementById('fmtPreviewActions').innerHTML = '';
+        const btn = document.getElementById('fmtBtn');
+        btn.disabled = true;
+        btn.innerHTML = '<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4-4m0 0l4-4m-4 4h12"/></svg> Apply Format';
+    }
 }
 
 function escHtml(t) { const d=document.createElement('div'); d.textContent=t||''; return d.innerHTML; }
@@ -635,28 +670,63 @@ function switchTab(tab) {
     if (tab === 'quota') startCountdown();
 }
 
-// ── Format Implementor ──
-let fmtFileData = null;   // { base64, filename }
-let fmtDocxOut  = null;
-let fmtFilenameOut = '';
+// ── Format Implementor — Multi-file ──
+let fmtFiles    = [];   // [{name, base64}]
+let fmtResults  = [];   // [{name, docx, filename, preview}]
+let fmtActiveIdx = -1;
 
-function fmtHandleFile(e) {
-    const file = e.target.files[0];
-    if (!file) return;
-    document.getElementById('fmtFileName').textContent = file.name;
-    const reader = new FileReader();
-    reader.onload = ev => {
-        const base64 = ev.target.result.split(',')[1];
-        fmtFileData = { base64, filename: file.name };
+function fmtHandleFiles(e) {
+    const files = Array.from(e.target.files);
+    if (!files.length) return;
+    fmtFiles = [];
+    const reads = files.map(f => new Promise(res => {
+        const r = new FileReader();
+        r.onload = ev => {
+            fmtFiles.push({ name: f.name, base64: ev.target.result.split(',')[1] });
+            res();
+        };
+        r.readAsDataURL(f);
+    }));
+    Promise.all(reads).then(() => {
+        fmtFiles.sort((a, b) => a.name.localeCompare(b.name));
+        fmtRenderChips();
         document.getElementById('fmtUploadZone').classList.add('loaded');
         document.getElementById('fmtBtn').disabled = false;
-    };
-    reader.readAsDataURL(file);
+        document.getElementById('fmtResult').style.display = 'none';
+    });
+}
+
+function fmtRenderChips() {
+    const wrap = document.getElementById('fmtChipsWrap');
+    const container = document.getElementById('fmtChipsContainer');
+    const label = document.getElementById('fmtChipsLabel');
+    wrap.style.display = 'block';
+    label.textContent = `${fmtFiles.length} file${fmtFiles.length !== 1 ? 's' : ''} selected`;
+    container.innerHTML = fmtFiles.map((f, i) =>
+        `<div class="file-chip">
+            <svg width="12" height="12" fill="none" stroke="#FF6584" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
+            ${escHtml(f.name)}
+            <button onclick="fmtRemoveFile(${i})" title="Remove">
+                <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+        </div>`
+    ).join('');
+}
+
+function fmtRemoveFile(idx) {
+    fmtFiles.splice(idx, 1);
+    if (!fmtFiles.length) {
+        document.getElementById('fmtChipsWrap').style.display = 'none';
+        document.getElementById('fmtUploadZone').classList.remove('loaded');
+        document.getElementById('fmtFileInput').value = '';
+        document.getElementById('fmtBtn').disabled = true;
+    } else {
+        fmtRenderChips();
+    }
 }
 
 async function fmtStart() {
-    if (!fmtFileData) return;
-
+    if (!fmtFiles.length) return;
     const btn = document.getElementById('fmtBtn');
     btn.disabled = true;
     btn.innerHTML = '<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg> Processing...';
@@ -665,33 +735,39 @@ async function fmtStart() {
     const bar  = document.getElementById('fmtProgressBar');
     const txt  = document.getElementById('fmtProgressText');
     prog.style.display = 'block';
-    bar.style.width = '20%';
-    txt.textContent = 'Reading document...';
+    bar.style.width = '0%';
     document.getElementById('fmtResult').style.display = 'none';
+    fmtResults = [];
 
     try {
-        bar.style.width = '50%';
-        txt.textContent = 'Extracting content & applying format...';
+        const total = fmtFiles.length;
+        for (let i = 0; i < total; i++) {
+            const f = fmtFiles[i];
+            bar.style.width = `${Math.round((i / total) * 90)}%`;
+            txt.textContent = `Formatting (${i + 1}/${total}): ${f.name}...`;
 
-        const res = await fetch('/api/format', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ docxBase64: fmtFileData.base64, filename: fmtFileData.filename })
-        });
-
-        const data = await res.json();
-        if (!res.ok || !data.ok) throw new Error(data.error || `Server error ${res.status}`);
+            const res = await fetch('/api/format', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ docxBase64: f.base64, filename: f.name })
+            });
+            const data = await res.json();
+            if (!res.ok || !data.ok) {
+                fmtResults.push({ name: f.name, error: data.error || `Server error ${res.status}` });
+            } else {
+                fmtResults.push({ name: f.name, docx: data.docx, filename: data.filename, preview: data.preview });
+            }
+            await new Promise(r => setTimeout(r, 200));
+        }
 
         bar.style.width = '100%';
-        txt.textContent = 'Done!';
-        fmtDocxOut = data.docx;
-        fmtFilenameOut = data.filename;
+        txt.textContent = `Done! ${fmtResults.filter(r => !r.error).length}/${total} files formatted.`;
 
         setTimeout(() => {
             prog.style.display = 'none';
             btn.disabled = false;
             btn.innerHTML = '<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4-4m0 0l4-4m-4 4h12"/></svg> Apply Format';
-            fmtShowResult(data);
+            fmtRenderResults();
         }, 500);
 
     } catch (err) {
@@ -702,44 +778,91 @@ async function fmtStart() {
     }
 }
 
-function fmtShowResult(data) {
-    document.getElementById('fmtResultLabel').textContent = `${fmtFilenameOut} — ready to download`;
-    const prev = document.getElementById('fmtPreview');
-    const p = data.preview;
+function fmtRenderResults() {
+    const resultWrap = document.getElementById('fmtResult');
+    const listEl = document.getElementById('fmtResultList');
+    resultWrap.style.display = 'block';
 
-    let html = `<div style="margin-bottom:14px;padding:12px;background:rgba(108,99,255,0.07);border:1px solid rgba(108,99,255,0.18);border-radius:10px;">
-        <div style="font-size:11px;font-weight:600;color:#a09aff;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:5px;">Course Title</div>
+    listEl.innerHTML = fmtResults.map((r, i) => {
+        if (r.error) {
+            return `<div style="padding:10px 12px;border-radius:10px;border:1px solid rgba(255,101,132,0.3);background:rgba(255,101,132,0.06);font-size:12px;">
+                <div style="font-weight:600;color:#FF6584;margin-bottom:3px;">${escHtml(r.name)}</div>
+                <div style="color:var(--muted);">Error: ${escHtml(r.error.substring(0,50))}</div>
+            </div>`;
+        }
+        return `<div id="fmtCard_${i}" onclick="fmtSelectResult(${i})" style="cursor:pointer;padding:10px 12px;border-radius:10px;border:1px solid rgba(67,217,173,0.2);background:rgba(67,217,173,0.05);transition:all 0.2s;display:flex;align-items:center;gap:8px;" onmouseover="if(fmtActiveIdx!==${i})this.style.borderColor='rgba(67,217,173,0.4)'" onmouseout="if(fmtActiveIdx!==${i})this.style.borderColor='rgba(67,217,173,0.2)'">
+            <div style="width:8px;height:8px;border-radius:50%;background:#43D9AD;flex-shrink:0;"></div>
+            <div style="flex:1;min-width:0;">
+                <div style="font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escHtml(r.name)}</div>
+                <div style="font-size:11px;color:#43D9AD;">${r.preview?.labs?.length || 0} labs</div>
+            </div>
+            <svg width="12" height="12" fill="none" stroke="var(--muted)" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+        </div>`;
+    }).join('');
+
+    // Auto select first success
+    const first = fmtResults.findIndex(r => !r.error);
+    if (first >= 0) fmtSelectResult(first);
+}
+
+function fmtSelectResult(idx) {
+    fmtActiveIdx = idx;
+    const r = fmtResults[idx];
+
+    // Highlight active card
+    fmtResults.forEach((_, i) => {
+        const card = document.getElementById(`fmtCard_${i}`);
+        if (!card) return;
+        card.style.borderColor   = i === idx ? 'rgba(108,99,255,0.6)' : 'rgba(67,217,173,0.2)';
+        card.style.background    = i === idx ? 'rgba(108,99,255,0.1)' : 'rgba(67,217,173,0.05)';
+        card.style.boxShadow     = i === idx ? '0 0 16px rgba(108,99,255,0.15)' : 'none';
+    });
+
+    document.getElementById('fmtPreviewTitle').textContent = r.filename || r.name;
+
+    const actionsEl = document.getElementById('fmtPreviewActions');
+    if (r.error) {
+        actionsEl.innerHTML = '';
+        document.getElementById('fmtPreview').innerHTML = `<p style="color:#FF6584;font-size:13px;">Error: ${escHtml(r.error)}</p>`;
+        return;
+    }
+
+    actionsEl.innerHTML = `<button class="btn-dl docx" onclick="fmtDownload(${idx})">
+        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+        Download .docx
+    </button>`;
+
+    const p = r.preview;
+    let html = `<div style="margin-bottom:12px;padding:10px 12px;background:rgba(108,99,255,0.07);border:1px solid rgba(108,99,255,0.18);border-radius:10px;">
+        <div style="font-size:10px;font-weight:600;color:#a09aff;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px;">Course Title</div>
         <div style="font-size:13px;font-weight:700;color:var(--text);">${escHtml(p.courseTitle || '')}</div>
-    </div>`;
-
-    html += `<div style="margin-bottom:14px;padding:12px;background:rgba(108,99,255,0.05);border:1px solid rgba(108,99,255,0.14);border-radius:10px;">
-        <div style="font-size:11px;font-weight:600;color:#a09aff;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:5px;">Course Overview</div>
+    </div>
+    <div style="margin-bottom:12px;padding:10px 12px;background:rgba(108,99,255,0.04);border:1px solid rgba(108,99,255,0.12);border-radius:10px;">
+        <div style="font-size:10px;font-weight:600;color:#a09aff;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px;">Course Overview</div>
         <div style="font-size:12px;color:var(--muted);line-height:1.6;">${escHtml(p.courseOverview || '')}</div>
     </div>`;
-
     if (p.labs?.length) {
-        html += `<div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:10px;">${p.labs.length} Labs detected</div>`;
+        html += `<div style="font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px;">${p.labs.length} Labs</div>`;
         html += p.labs.map(lab => `
-            <div style="margin-bottom:10px;border:1px solid rgba(67,217,173,0.18);border-radius:10px;overflow:hidden;">
-                <div style="background:rgba(67,217,173,0.08);padding:8px 12px;font-size:12px;font-weight:700;color:#43D9AD;">${escHtml(lab.title)}</div>
-                <div style="padding:8px 12px;font-size:11px;color:var(--muted);line-height:1.6;">
-                    ${lab.objective ? `<div><strong style="color:var(--text);">Obj:</strong> ${escHtml(lab.objective)}</div>` : ''}
+            <div style="margin-bottom:8px;border:1px solid rgba(67,217,173,0.16);border-radius:9px;overflow:hidden;">
+                <div style="background:rgba(67,217,173,0.07);padding:7px 11px;font-size:12px;font-weight:700;color:#43D9AD;">${escHtml(lab.title)}</div>
+                <div style="padding:7px 11px;font-size:11px;color:var(--muted);line-height:1.6;">
+                    ${lab.objective ? `<div><strong style="color:var(--text);">Obj:</strong> ${escHtml(lab.objective.substring(0,100))}${lab.objective.length>100?'...':''}</div>` : ''}
                     ${lab.keyTopics ? `<div><strong style="color:var(--text);">Topics:</strong> ${escHtml(lab.keyTopics.substring(0,80))}${lab.keyTopics.length>80?'...':''}</div>` : ''}
                 </div>
             </div>`).join('');
     }
-
-    prev.innerHTML = html;
-    document.getElementById('fmtResult').style.display = 'block';
+    document.getElementById('fmtPreview').innerHTML = html;
 }
 
-function fmtDownload() {
-    if (!fmtDocxOut) return;
-    const bytes = Uint8Array.from(atob(fmtDocxOut), c => c.charCodeAt(0));
+function fmtDownload(idx) {
+    const r = fmtResults[idx];
+    if (!r || r.error) return;
+    const bytes = Uint8Array.from(atob(r.docx), c => c.charCodeAt(0));
     const blob = new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url; a.download = fmtFilenameOut;
+    a.href = url; a.download = r.filename;
     document.body.appendChild(a); a.click();
     setTimeout(() => { URL.revokeObjectURL(url); document.body.removeChild(a); }, 100);
 }
