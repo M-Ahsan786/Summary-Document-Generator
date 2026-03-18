@@ -128,17 +128,26 @@ function parseStructure(paragraphs) {
 
     let state = 'before_title';
     let currentLab = null;
-    let lastField = null; // track last filled field for continuation lines
+    let lastField = null;
 
     for (let i = 0; i < paragraphs.length; i++) {
         const raw = paragraphs[i];
         const t = raw.trim();
         if (!t) continue;
 
-        // ── Course title: first non-empty paragraph ──
+        // ── First paragraph: check if it's already "Course Overview" heading ──
+        // If so, no course title in file — use placeholder
         if (state === 'before_title') {
-            result.courseTitle = t;
-            state = 'title';
+            if (isCourseOverviewHeading(t)) {
+                result.courseTitle = '[Course Title]';
+                state = 'overview';
+            } else if (isDetailedLabsHeading(t)) {
+                result.courseTitle = '[Course Title]';
+                state = 'labs';
+            } else {
+                result.courseTitle = t;
+                state = 'title';
+            }
             continue;
         }
 
@@ -158,9 +167,7 @@ function parseStructure(paragraphs) {
         }
 
         // ── Collect overview text ──
-        // Keep collecting until we hit a lab heading or detailed labs heading
         if (state === 'overview') {
-            // Stop collecting if this looks like start of labs
             if (isLabTitle(t)) {
                 state = 'labs';
                 if (currentLab) result.labs.push(currentLab);
@@ -173,7 +180,6 @@ function parseStructure(paragraphs) {
                 lastField = null;
                 continue;
             }
-            // Accumulate overview — multiple paragraphs joined with space
             if (result.courseOverview) result.courseOverview += ' ' + t;
             else result.courseOverview = t;
             continue;
@@ -209,7 +215,6 @@ function parseStructure(paragraphs) {
                 currentLab.realWorldApplication = stripLabel(t);
                 lastField = 'realWorldApplication';
             } else {
-                // Continuation line — append to last field
                 if (lastField && currentLab[lastField] !== undefined) {
                     currentLab[lastField] += ' ' + stripBullet(t);
                 } else {
