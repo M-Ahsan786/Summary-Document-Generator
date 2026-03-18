@@ -142,10 +142,10 @@ function parseStructure(paragraphs) {
         // If so, no course title in file — use placeholder
         if (state === 'before_title') {
             if (isCourseOverviewHeading(t)) {
-                result.courseTitle = '[Course Name]';
+                result.courseTitle = '[Course Title]';
                 state = 'overview';
             } else if (isDetailedLabsHeading(t)) {
-                result.courseTitle = '[Course Name]';
+                result.courseTitle = '[Course Title]';
                 state = 'labs';
             } else {
                 result.courseTitle = t;
@@ -258,7 +258,7 @@ async function buildFormattedDocx(data, opts = {}) {
             } : {}),
             children: [
                 new TextRun({
-                    text: `Course Name: ${courseName}`, bold: true, size: 40,
+                    text: `Course Title: ${courseName}`, bold: true, size: 40,
                     font: opts.titleStyle ? 'Aptos' : 'Times New Roman',
                     color: opts.titleStyle ? DARK_BLUE : DARK_GREY
                 })
@@ -378,7 +378,7 @@ async function buildFormattedDocx(data, opts = {}) {
             tabStops: [{ type: TabStopType.RIGHT, position: 10200 }],
             children: [
                 new TextRun({ text: '\t' }),
-                new ImageRun({ data: logoBuffer, type: 'png', transformation: { width: 140, height: 32 } })
+                new ImageRun({ data: logoBuffer, type: 'jpg', transformation: { width: 140, height: 32 } })
             ]
         })
     ] : [new Paragraph({ children: [] })];
@@ -391,7 +391,7 @@ async function buildFormattedDocx(data, opts = {}) {
             spacing: { before: 80, after: 0, line: 360, lineRule: 'auto' },
             children: [
                 new TextRun({ text: 'Powered By:  ', bold: true, size: 20, font: 'Times New Roman', color: DARK_BLUE }),
-                new ImageRun({ data: logoBuffer, type: 'png', transformation: { width: 95, height: 21 } })
+                new ImageRun({ data: logoBuffer, type: 'jpg', transformation: { width: 95, height: 21 } })
             ]
         })
     ] : [new Paragraph({ children: [] })];
