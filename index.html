@@ -95,7 +95,7 @@
         .btn-primary::after { content:''; position:absolute; top:0; left:-100%; width:100%; height:100%; background:linear-gradient(90deg,transparent,rgba(255,255,255,0.12),transparent); transition:left 0.4s ease; }
         .btn-primary:hover::after { left:100%; }
         .btn-primary:hover { transform:translateY(-2px); box-shadow:0 8px 32px rgba(108,99,255,0.52); background-position:right center; }
-        .btn-primary:disabled { background:rgba(255,255,255,0.06); color:var(--muted); box-shadow:none; transform:none; cursor:not-allowed; }
+        .btn-primary:disabled { opacity: 0.45; color: #ffffff; box-shadow:none; transform:none; cursor:not-allowed; }
         .btn-primary:disabled::after { display:none; }
 
         .btn-reset {
@@ -397,7 +397,7 @@
 
             <!-- Apply button -->
             <div style="text-align:center;margin-bottom:22px;">
-                <button id="fmtBtn" onclick="fmtStart()" disabled class="btn-primary" style="background:linear-gradient(135deg,#FF6584 0%,#ff8fa3 50%,#FF6584 100%);background-size:200% auto;box-shadow:0 4px 20px rgba(255,101,132,0.38);">
+                <button id="fmtBtn" onclick="fmtStart()" disabled class="btn-primary" style="background:linear-gradient(135deg,#FF6584 0%,#ff8fa3 50%,#FF6584 100%);background-size:200% auto;box-shadow:0 4px 20px rgba(255,101,132,0.38);color:#ffffff;">
                     <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4-4m0 0l4-4m-4 4h12"/></svg>
                     Apply Format
                 </button>
@@ -839,18 +839,27 @@ function fmtSelectResult(idx) {
     </div>
     <div style="margin-bottom:12px;padding:10px 12px;background:rgba(108,99,255,0.04);border:1px solid rgba(108,99,255,0.12);border-radius:10px;">
         <div style="font-size:10px;font-weight:600;color:#a09aff;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px;">Course Overview</div>
-        <div style="font-size:12px;color:var(--muted);line-height:1.6;">${escHtml(p.courseOverview || '')}</div>
+        <div style="font-size:12px;color:var(--muted);line-height:1.6;">${escHtml((p.courseOverview||'').substring(0,180))}${(p.courseOverview||'').length>180?'...':''}</div>
     </div>`;
+
     if (p.labs?.length) {
         html += `<div style="font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px;">${p.labs.length} Labs</div>`;
-        html += p.labs.map(lab => `
+        html += p.labs.map(lab => {
+            const sub = [
+                { label: 'Objective',     val: lab.objective },
+                { label: 'Key Topics',    val: lab.keyTopics },
+                { label: 'Hands-On',      val: lab.handsOnActivity },
+                { label: 'Real-World',    val: lab.realWorldApplication }
+            ].filter(s => s.val);
+            return `
             <div style="margin-bottom:8px;border:1px solid rgba(67,217,173,0.16);border-radius:9px;overflow:hidden;">
                 <div style="background:rgba(67,217,173,0.07);padding:7px 11px;font-size:12px;font-weight:700;color:#43D9AD;">${escHtml(lab.title)}</div>
-                <div style="padding:7px 11px;font-size:11px;color:var(--muted);line-height:1.6;">
-                    ${lab.objective ? `<div><strong style="color:var(--text);">Obj:</strong> ${escHtml(lab.objective.substring(0,100))}${lab.objective.length>100?'...':''}</div>` : ''}
-                    ${lab.keyTopics ? `<div><strong style="color:var(--text);">Topics:</strong> ${escHtml(lab.keyTopics.substring(0,80))}${lab.keyTopics.length>80?'...':''}</div>` : ''}
+                <div style="padding:8px 11px;font-size:11px;color:var(--muted);line-height:1.65;display:flex;flex-direction:column;gap:4px;">
+                    ${sub.map(s => `<div><strong style="color:var(--text);">${s.label}:</strong> ${escHtml(s.val.substring(0,90))}${s.val.length>90?'...':''}</div>`).join('')}
+                    ${sub.length === 0 ? '<div style="color:rgba(255,255,255,0.2);font-style:italic;">No sub-sections detected</div>' : ''}
                 </div>
-            </div>`).join('');
+            </div>`;
+        }).join('');
     }
     document.getElementById('fmtPreview').innerHTML = html;
 }
