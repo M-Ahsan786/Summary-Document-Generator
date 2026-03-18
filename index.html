@@ -614,6 +614,8 @@ function formatResetPKT(utcDate) {
 }
 
 function startCountdown() {
+    let wasExhausted = false;
+
     function update() {
         const el = document.getElementById('quotaCountdown');
         const labelEl = document.getElementById('quotaResetLabel');
@@ -623,14 +625,20 @@ function startCountdown() {
         const nextReset = getNextResetUTC();
         const diff = nextReset - now;
 
-        // Update reset label
         if (labelEl) {
-            labelEl.textContent = `Resets: ${formatResetPKT(nextReset)}`;
+            labelEl.textContent = `Next reset: ${formatResetPKT(nextReset)}`;
         }
 
         if (diff <= 0) {
-            el.textContent = '🔄 Resetting now — refresh page!';
+            // Reset just happened
+            el.textContent = '🟢 Quota reset! APIs are now available';
             el.style.color = '#43D9AD';
+            el.style.fontWeight = '700';
+            // Notify user if they were watching
+            if (wasExhausted || document.getElementById('section-quota').style.display !== 'none') {
+                showQuotaNotification();
+            }
+            wasExhausted = false;
             return;
         }
 
@@ -638,17 +646,66 @@ function startCountdown() {
         const m = Math.floor((diff % 3600000) / 60000);
         const s = Math.floor((diff % 60000) / 1000);
         const pad = n => String(n).padStart(2, '0');
+        const timeStr = `${pad(h)}h ${pad(m)}m ${pad(s)}s`;
 
-        if (h < 1) {
-            el.style.color = '#FFB86C'; // orange when less than 1 hour
+        if (h >= 20) {
+            // More than 20 hours — red
+            el.style.color = '#FF6584';
+            el.style.fontWeight = '600';
+            el.textContent = `🔴 Resets in: ${timeStr}`;
+            wasExhausted = true;
+        } else if (h < 2) {
+            // Less than 2 hours — orange
+            el.style.color = '#FFB86C';
+            el.style.fontWeight = '600';
+            el.textContent = `🟡 Resets in: ${timeStr}`;
+            wasExhausted = true;
         } else {
-            el.style.color = '#43D9AD';
+            // Between 2-20 hours — neutral muted
+            el.style.color = '#a09aff';
+            el.style.fontWeight = '600';
+            el.textContent = `⏱ Resets in: ${timeStr}`;
+            wasExhausted = true;
         }
-        el.textContent = `⏱ Resets in: ${pad(h)}h ${pad(m)}m ${pad(s)}s`;
     }
+
     update();
     clearInterval(window._countdownTimer);
     window._countdownTimer = setInterval(update, 1000);
+}
+
+function showQuotaNotification() {
+    // Remove existing notification if any
+    const existing = document.getElementById('quotaAvailableNotif');
+    if (existing) existing.remove();
+
+    const notif = document.createElement('div');
+    notif.id = 'quotaAvailableNotif';
+    notif.style.cssText = `
+        position:fixed;top:24px;right:24px;z-index:9999;
+        background:linear-gradient(135deg,rgba(67,217,173,0.18),rgba(67,217,173,0.08));
+        border:1px solid rgba(67,217,173,0.5);border-radius:14px;
+        padding:16px 20px;max-width:320px;
+        box-shadow:0 8px 32px rgba(67,217,173,0.2),0 0 0 1px rgba(255,255,255,0.04) inset;
+        animation:fadeUp 0.4s ease;
+    `;
+    notif.innerHTML = `
+        <div style="display:flex;align-items:flex-start;gap:12px;">
+            <div style="font-size:22px;line-height:1;">🟢</div>
+            <div style="flex:1;">
+                <div style="font-size:14px;font-weight:700;color:#43D9AD;margin-bottom:4px;">Quota Available!</div>
+                <div style="font-size:12px;color:#a0e8d8;line-height:1.5;">Your Gemini API quota has reset. You can now generate course summaries.</div>
+            </div>
+            <button onclick="this.parentElement.parentElement.remove()" style="background:none;border:none;color:#43D9AD;cursor:pointer;font-size:18px;line-height:1;padding:0;opacity:0.7;" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.7">×</button>
+        </div>
+        <button onclick="switchTab('generator');this.parentElement.remove();" style="margin-top:12px;width:100%;background:linear-gradient(135deg,#43D9AD,#2fb894);border:none;border-radius:8px;padding:8px;font-size:13px;font-weight:600;color:#080810;cursor:pointer;">
+            Go to Generator →
+        </button>
+    `;
+    document.body.appendChild(notif);
+
+    // Auto dismiss after 15 seconds
+    setTimeout(() => { if (notif.parentElement) notif.remove(); }, 15000);
 }
 
 // ── API Quota Check ──
