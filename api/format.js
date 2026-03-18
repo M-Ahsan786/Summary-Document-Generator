@@ -83,9 +83,6 @@ async function extractDocxContent(buffer) {
 
 // ═══════════════════════════════════════════════
 // STEP 2: Parse paragraphs into structured data
-// Detects: courseTitle, courseOverview, labs[]
-//   each lab has: title, objective, keyTopics,
-//                 handsOnActivity, realWorldApplication, extra[]
 // ═══════════════════════════════════════════════
 function parseStructure(paragraphs) {
     const result = {
@@ -94,33 +91,44 @@ function parseStructure(paragraphs) {
         labs: []
     };
 
-    // Detect section types
+    // Strip bullet/dash/dot prefixes: •, -, *, ·, ●, –, —, numbers like "1."
+    const stripBullet = t => t.replace(/^[\s•\-*·●–—▪▸►◦◆]+\s*/, '').replace(/^\d+\.\s+/, '').trim();
+
+    // Detect section headings — check both raw and bullet-stripped
     const isCourseOverviewHeading = t =>
-        /^course\s+overview$/i.test(t.trim());
+        /^course\s+overview\s*[:–\-]?$/i.test(stripBullet(t).trim());
 
     const isDetailedLabsHeading = t =>
-        /^detailed\s+lab\s+summar/i.test(t.trim());
+        /^detailed\s+lab\s+summar/i.test(stripBullet(t).trim());
 
     const isLabTitle = t =>
-        /^lab\s+[\d.]+\s*[:–\-]/i.test(t.trim());
+        /^lab\s+[\d.]+\s*[:–\-]/i.test(stripBullet(t).trim());
 
+    // Sub-heading detection — works with or without bullet, with or without bold
     const isObjective = t =>
-        /^objective\s*[:–\-]/i.test(t.trim());
+        /^objective\s*[:–\-]/i.test(stripBullet(t).trim());
 
     const isKeyTopics = t =>
-        /^key\s+topics\s*(covered)?\s*[:–\-]/i.test(t.trim());
+        /^key\s+topics(\s+covered)?\s*[:–\-]/i.test(stripBullet(t).trim());
 
     const isHandsOn = t =>
-        /^hands[\s\-]on\s+(activity)?\s*[:–\-]/i.test(t.trim());
+        /^hands[\s\-]*on(\s+activity)?\s*[:–\-]/i.test(stripBullet(t).trim());
 
     const isRealWorld = t =>
-        /^real[\s\-]world\s+(application)?\s*[:–\-]/i.test(t.trim());
+        /^real[\s\-]*world(\s+application)?\s*[:–\-]/i.test(stripBullet(t).trim());
 
-    // Strip label prefix and return value
-    const stripLabel = t => t.replace(/^[^:–\-]+[:–\-]\s*/, '').trim();
+    const isAnySubHeading = t =>
+        isObjective(t) || isKeyTopics(t) || isHandsOn(t) || isRealWorld(t);
 
-    let state = 'before_title'; // before_title | title | overview | labs
+    // Strip label prefix (everything before and including the colon/dash)
+    const stripLabel = t => {
+        const clean = stripBullet(t);
+        return clean.replace(/^[^:–\-]+[:–\-]\s*/, '').trim();
+    };
+
+    let state = 'before_title';
     let currentLab = null;
+    let lastField = null; // track last filled field for continuation lines
 
     for (let i = 0; i < paragraphs.length; i++) {
         const raw = paragraphs[i];
@@ -137,17 +145,35 @@ function parseStructure(paragraphs) {
         // ── Detect Course Overview heading ──
         if (isCourseOverviewHeading(t)) {
             state = 'overview';
+            lastField = null;
             continue;
         }
 
         // ── Detect Detailed Lab Summaries heading ──
         if (isDetailedLabsHeading(t)) {
+            if (currentLab) { result.labs.push(currentLab); currentLab = null; }
             state = 'labs';
+            lastField = null;
             continue;
         }
 
         // ── Collect overview text ──
+        // Keep collecting until we hit a lab heading or detailed labs heading
         if (state === 'overview') {
+            // Stop collecting if this looks like start of labs
+            if (isLabTitle(t)) {
+                state = 'labs';
+                if (currentLab) result.labs.push(currentLab);
+                currentLab = {
+                    title: stripBullet(t),
+                    objective: '', keyTopics: '',
+                    handsOnActivity: '', realWorldApplication: '',
+                    extra: []
+                };
+                lastField = null;
+                continue;
+            }
+            // Accumulate overview — multiple paragraphs joined with space
             if (result.courseOverview) result.courseOverview += ' ' + t;
             else result.courseOverview = t;
             continue;
@@ -159,13 +185,12 @@ function parseStructure(paragraphs) {
             if (isLabTitle(t)) {
                 if (currentLab) result.labs.push(currentLab);
                 currentLab = {
-                    title: t,
-                    objective: '',
-                    keyTopics: '',
-                    handsOnActivity: '',
-                    realWorldApplication: '',
+                    title: stripBullet(t),
+                    objective: '', keyTopics: '',
+                    handsOnActivity: '', realWorldApplication: '',
                     extra: []
                 };
+                lastField = null;
                 continue;
             }
 
@@ -173,25 +198,22 @@ function parseStructure(paragraphs) {
 
             if (isObjective(t)) {
                 currentLab.objective = stripLabel(t);
+                lastField = 'objective';
             } else if (isKeyTopics(t)) {
                 currentLab.keyTopics = stripLabel(t);
+                lastField = 'keyTopics';
             } else if (isHandsOn(t)) {
                 currentLab.handsOnActivity = stripLabel(t);
+                lastField = 'handsOnActivity';
             } else if (isRealWorld(t)) {
                 currentLab.realWorldApplication = stripLabel(t);
+                lastField = 'realWorldApplication';
             } else {
-                // Extra text — append to the most recently filled field
-                // or accumulate as extra
-                if (currentLab.realWorldApplication) {
-                    currentLab.extra.push(t);
-                } else if (currentLab.handsOnActivity) {
-                    currentLab.handsOnActivity += ' ' + t;
-                } else if (currentLab.keyTopics) {
-                    currentLab.keyTopics += ' ' + t;
-                } else if (currentLab.objective) {
-                    currentLab.objective += ' ' + t;
+                // Continuation line — append to last field
+                if (lastField && currentLab[lastField] !== undefined) {
+                    currentLab[lastField] += ' ' + stripBullet(t);
                 } else {
-                    currentLab.extra.push(t);
+                    currentLab.extra.push(stripBullet(t));
                 }
             }
         }
