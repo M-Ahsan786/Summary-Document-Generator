@@ -142,10 +142,10 @@ function parseStructure(paragraphs) {
         // If so, no course title in file — use placeholder
         if (state === 'before_title') {
             if (isCourseOverviewHeading(t)) {
-                result.courseTitle = '[Course Title]';
+                result.courseTitle = '[Course Name]';
                 state = 'overview';
             } else if (isDetailedLabsHeading(t)) {
-                result.courseTitle = '[Course Title]';
+                result.courseTitle = '[Course Name]';
                 state = 'labs';
             } else {
                 result.courseTitle = t;
@@ -258,7 +258,7 @@ async function buildFormattedDocx(data, opts = {}) {
             } : {}),
             children: [
                 new TextRun({
-                    text: `Course Title: ${courseName}`, bold: true, size: 40,
+                    text: `Course Name: ${courseName}`, bold: true, size: 40,
                     font: opts.titleStyle ? 'Aptos' : 'Times New Roman',
                     color: opts.titleStyle ? DARK_BLUE : DARK_GREY
                 })
