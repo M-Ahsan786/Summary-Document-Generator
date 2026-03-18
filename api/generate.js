@@ -457,10 +457,10 @@ async function buildDocx(data, courseName) {
         }
     }
 
-    // Header
+    // Header — logo top-right, pushed to page edge
     const headerParagraph = new Paragraph({
-        spacing: { before: 0, after: 0, line: 240 },
-        tabStops: [{ type: TabStopType.RIGHT, position: 9720 }],
+        spacing: { before: 0, after: 0, line: 200 },
+        tabStops: [{ type: TabStopType.RIGHT, position: 10200 }],
         children: [
             new TextRun({ text: '\t' }),
             new ImageRun({ data: logoBuffer, type: 'png', transformation: { width: 140, height: 32 } })
@@ -515,12 +515,25 @@ async function patchDocxXml(buffer) {
     docXml = docXml.replace(/<w:pgBorders(?![^>]*w:offsetFrom)/g, '<w:pgBorders w:offsetFrom="page"');
     zip.file(docXmlPath, docXml);
 
+    // Patch header XML — push logo to top (distT=0)
+    const headerFiles = Object.keys(zip.files).filter(f => f.startsWith('word/header'));
+    for (const hPath of headerFiles) {
+        let hXml = await zip.file(hPath).async('string');
+        hXml = hXml.replace(/<wp:inline([^>]*)>/g, (match, attrs) => {
+            let u = attrs.replace(/distT="[^"]*"/, 'distT="0"').replace(/distB="[^"]*"/, 'distB="0"');
+            if (!u.includes('distT=')) u += ' distT="0"';
+            if (!u.includes('distB=')) u += ' distB="0"';
+            return `<wp:inline${u}>`;
+        });
+        zip.file(hPath, hXml);
+    }
+
     const footerFiles = Object.keys(zip.files).filter(f => f.startsWith('word/footer'));
     for (const fPath of footerFiles) {
         let fXml = await zip.file(fPath).async('string');
         fXml = fXml.replace(/<wp:inline([^>]*)>/g, (match, attrs) => {
-            let updated = attrs.replace(/distT="[^"]*"/, 'distT="0"').replace(/distB="[^"]*"/, 'distB="0"');
-            if (!updated.includes('distT=')) updated += ' distT="0"';
+            let updated = attrs.replace(/distT="[^"]*"/, 'distT="114300"').replace(/distB="[^"]*"/, 'distB="0"');
+            if (!updated.includes('distT=')) updated += ' distT="114300"';
             if (!updated.includes('distB=')) updated += ' distB="0"';
             return `<wp:inline${updated}>`;
         });
