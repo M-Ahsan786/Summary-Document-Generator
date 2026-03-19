@@ -232,68 +232,91 @@ function parseJsonSafe(raw) {
 }
 
 // ═══════════════════════════════════════════════
+// GEMINI MODELS — tried in order until one works
+// ═══════════════════════════════════════════════
+const GEMINI_MODELS = [
+    'gemini-2.0-flash',
+    'gemini-2.0-flash-lite',
+    'gemini-1.5-flash',
+    'gemini-1.5-flash-latest',
+    'gemini-1.5-flash-8b',
+];
+
+// ═══════════════════════════════════════════════
 // GEMINI API CALL
 // ═══════════════════════════════════════════════
 async function callGemini(apiKey, prompt) {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
-    const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: { temperature: 0.4, maxOutputTokens: 8192 },
-            systemInstruction: {
-                parts: [{ text: 'You are a professional technical writer. Always respond with valid JSON only — no markdown fences, no explanation, no extra text before or after the JSON.' }]
-            }
-        })
-    });
+    let lastError = '';
 
-    const rawBody = await res.text();
+    for (const model of GEMINI_MODELS) {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                contents: [{ parts: [{ text: prompt }] }],
+                generationConfig: { temperature: 0.4, maxOutputTokens: 8192 },
+                systemInstruction: {
+                    parts: [{ text: 'You are a professional technical writer. Always respond with valid JSON only — no markdown fences, no explanation, no extra text before or after the JSON.' }]
+                }
+            })
+        });
 
-    // Safe parse — rawBody might be HTML/text on errors
-    let data = null;
-    try {
-        data = JSON.parse(rawBody);
-    } catch (_) {
-        // Non-JSON body — treat as quota/server error so fallback triggers
-        const msg = `Gemini non-JSON response (${res.status}): ${rawBody.substring(0, 120)}`;
-        throw new Error(`Gemini quota exceeded: ${msg}`);
-    }
+        const rawBody = await res.text();
 
-    if (!res.ok) {
-        const errMsg = data?.error?.message || `Gemini API error ${res.status}`;
-        if (res.status === 429 || res.status === 403 ||
-            errMsg.includes('quota') || errMsg.includes('RESOURCE_EXHAUSTED') ||
-            errMsg.includes('API_KEY_INVALID') || errMsg.includes('exhausted')) {
-            throw new Error(`Gemini quota exceeded: ${errMsg}`);
+        // Model not available — try next
+        if (res.status === 404 || rawBody.includes('not found for API version')) {
+            lastError = `Model ${model} not available`;
+            continue;
         }
-        throw new Error(errMsg);
+
+        // Safe parse
+        let data = null;
+        try {
+            data = JSON.parse(rawBody);
+        } catch (_) {
+            const msg = `Gemini non-JSON response (${res.status}): ${rawBody.substring(0, 120)}`;
+            throw new Error(`Gemini quota exceeded: ${msg}`);
+        }
+
+        if (!res.ok) {
+            const errMsg = data?.error?.message || `Gemini API error ${res.status}`;
+            if (res.status === 429 || res.status === 403 ||
+                errMsg.includes('quota') || errMsg.includes('RESOURCE_EXHAUSTED') ||
+                errMsg.includes('exhausted')) {
+                throw new Error(`Gemini quota exceeded: ${errMsg}`);
+            }
+            // Other error on this model — try next
+            lastError = errMsg;
+            continue;
+        }
+
+        if (data?.error) {
+            const errMsg = data.error.message || 'Gemini error';
+            if (errMsg.includes('quota') || errMsg.includes('RESOURCE_EXHAUSTED'))
+                throw new Error(`Gemini quota exceeded: ${errMsg}`);
+            lastError = errMsg;
+            continue;
+        }
+
+        const candidates = data.candidates;
+        if (!candidates || candidates.length === 0) {
+            const feedbackReason = data?.promptFeedback?.blockReason || 'unknown';
+            throw new Error(`Gemini quota exceeded: no candidates (blockReason: ${feedbackReason})`);
+        }
+
+        const candidate = candidates[0];
+        if (candidate.finishReason === 'SAFETY') throw new Error('Gemini blocked for safety');
+        if (candidate.finishReason === 'MAX_TOKENS') throw new Error('Gemini MAX_TOKENS — response truncated');
+
+        const rawText = candidate.content?.parts?.[0]?.text || '';
+        if (!rawText) throw new Error('Gemini quota exceeded: empty text in response');
+
+        console.log(`Gemini success with model: ${model}`);
+        return parseJsonSafe(rawText);
     }
 
-    // Check for quota errors inside response body
-    if (data?.error) {
-        const errMsg = data.error.message || 'Gemini error';
-        if (errMsg.includes('quota') || errMsg.includes('RESOURCE_EXHAUSTED'))
-            throw new Error(`Gemini quota exceeded: ${errMsg}`);
-        throw new Error(errMsg);
-    }
-
-    // Empty candidates — usually means quota issue or content blocked
-    const candidates = data.candidates;
-    if (!candidates || candidates.length === 0) {
-        const feedbackReason = data?.promptFeedback?.blockReason || 'unknown';
-        throw new Error(`Gemini quota exceeded: no candidates returned (blockReason: ${feedbackReason})`);
-    }
-
-    const candidate = candidates[0];
-    if (candidate.finishReason === 'SAFETY') throw new Error('Gemini blocked for safety');
-    if (candidate.finishReason === 'MAX_TOKENS') throw new Error('Gemini MAX_TOKENS — response truncated');
-    if (candidate.finishReason === 'RECITATION') throw new Error('Gemini quota exceeded: RECITATION block');
-
-    const rawText = candidate.content?.parts?.[0]?.text || '';
-    if (!rawText) throw new Error('Gemini quota exceeded: empty text in response');
-
-    return parseJsonSafe(rawText);
+    throw new Error(`Gemini quota exceeded: no working model found. Last error: ${lastError}`);
 }
 
 // ═══════════════════════════════════════════════
