@@ -51,11 +51,16 @@ function markExhausted(key) {
 }
 
 function isQuotaError(msg = '') {
-    return msg.includes('quota') ||
-           msg.includes('RESOURCE_EXHAUSTED') ||
-           msg.includes('429') ||
-           msg.includes('rate limit') ||
-           msg.includes('limit reached');
+    const m = msg.toLowerCase();
+    return m.includes('quota') ||
+           m.includes('resource_exhausted') ||
+           m.includes('429') ||
+           m.includes('rate limit') ||
+           m.includes('limit reached') ||
+           m.includes('exhausted') ||
+           m.includes('non-json response') ||
+           m.includes('no candidates') ||
+           m.includes('empty text');
 }
 
 export default async function handler(req, res) {
@@ -245,25 +250,49 @@ async function callGemini(apiKey, prompt) {
 
     const rawBody = await res.text();
 
-    // Safe parse — rawBody might be HTML or plain text on errors
+    // Safe parse — rawBody might be HTML/text on errors
     let data = null;
-    try { data = JSON.parse(rawBody); } catch (_) {
-        throw new Error(`Gemini returned non-JSON response (status ${res.status}): ${rawBody.substring(0, 150)}`);
+    try {
+        data = JSON.parse(rawBody);
+    } catch (_) {
+        // Non-JSON body — treat as quota/server error so fallback triggers
+        const msg = `Gemini non-JSON response (${res.status}): ${rawBody.substring(0, 120)}`;
+        throw new Error(`Gemini quota exceeded: ${msg}`);
     }
 
     if (!res.ok) {
         const errMsg = data?.error?.message || `Gemini API error ${res.status}`;
-        if (res.status === 429 || errMsg.includes('quota') || errMsg.includes('RESOURCE_EXHAUSTED'))
+        if (res.status === 429 || res.status === 403 ||
+            errMsg.includes('quota') || errMsg.includes('RESOURCE_EXHAUSTED') ||
+            errMsg.includes('API_KEY_INVALID') || errMsg.includes('exhausted')) {
+            throw new Error(`Gemini quota exceeded: ${errMsg}`);
+        }
+        throw new Error(errMsg);
+    }
+
+    // Check for quota errors inside response body
+    if (data?.error) {
+        const errMsg = data.error.message || 'Gemini error';
+        if (errMsg.includes('quota') || errMsg.includes('RESOURCE_EXHAUSTED'))
             throw new Error(`Gemini quota exceeded: ${errMsg}`);
         throw new Error(errMsg);
     }
 
-    const candidate = data.candidates?.[0];
-    if (!candidate) throw new Error('Gemini returned no candidates');
+    // Empty candidates — usually means quota issue or content blocked
+    const candidates = data.candidates;
+    if (!candidates || candidates.length === 0) {
+        const feedbackReason = data?.promptFeedback?.blockReason || 'unknown';
+        throw new Error(`Gemini quota exceeded: no candidates returned (blockReason: ${feedbackReason})`);
+    }
+
+    const candidate = candidates[0];
     if (candidate.finishReason === 'SAFETY') throw new Error('Gemini blocked for safety');
     if (candidate.finishReason === 'MAX_TOKENS') throw new Error('Gemini MAX_TOKENS — response truncated');
+    if (candidate.finishReason === 'RECITATION') throw new Error('Gemini quota exceeded: RECITATION block');
 
     const rawText = candidate.content?.parts?.[0]?.text || '';
+    if (!rawText) throw new Error('Gemini quota exceeded: empty text in response');
+
     return parseJsonSafe(rawText);
 }
 
