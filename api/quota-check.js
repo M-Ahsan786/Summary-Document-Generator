@@ -19,7 +19,7 @@ export default async function handler(req, res) {
             if (!key) return res.status(200).json({ ok: false, error: 'Key not configured in environment variables' });
 
             // Minimal test prompt — 1 token in, 1 token out
-            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${key}`;
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${key}`;
             const r = await fetch(url, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
