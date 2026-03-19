@@ -1132,10 +1132,12 @@ async function checkGeminiQuota(num) {
         const res = await fetch(`/api/quota-check?api=gemini${num === 2 ? '2' : ''}`);
         const data = await res.json();
         if (data.ok) {
-            statusEl.innerHTML = `<span style="color:#43D9AD;">✅ Quota available — Active & working (${data.ms}ms)</span>`;
+            const modelInfo = data.model ? ` via ${data.model}` : '';
+            statusEl.innerHTML = `<span style="color:#43D9AD;">✅ Quota available — Active & working${modelInfo} (${data.ms}ms)</span>`;
         } else if (data.exhausted) {
             const nextReset = getNextResetUTC();
-            statusEl.innerHTML = `<span style="color:#FF6584;">❌ Quota exhausted — Available again: <strong>${formatResetPKT(nextReset)}</strong></span>`;
+            const modelInfo = data.model ? ` [${data.model}]` : '';
+            statusEl.innerHTML = `<span style="color:#FF6584;">❌ Quota exhausted${modelInfo} — Available again: <strong>${formatResetPKT(nextReset)}</strong></span>`;
         } else {
             statusEl.innerHTML = `<span style="color:#FFB86C;">⚠️ Error: ${escHtml(data.error || 'Unknown')}</span>`;
         }
