@@ -1004,15 +1004,11 @@ function fmtDownload(idx) {
 // Google/Groq quota resets at midnight UTC = 05:00 AM PKT (UTC+5)
 function getNextResetUTC() {
     const now = new Date();
-    // Midnight UTC tonight
-    const midnightTonight = new Date(Date.UTC(
-        now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0
+    // Next midnight UTC = start of tomorrow in UTC
+    const nextMidnight = new Date(Date.UTC(
+        now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 0, 0
     ));
-    // If we're already past tonight's midnight, use tomorrow's
-    const next = midnightTonight <= now
-        ? new Date(midnightTonight.getTime() + 86400000)
-        : midnightTonight;
-    return next;
+    return nextMidnight;
 }
 
 function formatResetPKT(utcDate) {
