@@ -235,7 +235,7 @@ function parseJsonSafe(raw) {
 // GEMINI API CALL
 // ═══════════════════════════════════════════════
 async function callGemini(apiKey, prompt) {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${apiKey}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
     const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
