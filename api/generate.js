@@ -235,11 +235,11 @@ function parseJsonSafe(raw) {
 // GEMINI MODELS — tried in order until one works
 // ═══════════════════════════════════════════════
 const GEMINI_MODELS = [
+    'gemini-3-flash-preview',
     'gemini-2.0-flash',
     'gemini-2.0-flash-lite',
     'gemini-1.5-flash',
     'gemini-1.5-flash-latest',
-    'gemini-1.5-flash-8b',
 ];
 
 // ═══════════════════════════════════════════════
