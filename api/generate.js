@@ -393,10 +393,10 @@ Respond with ONLY valid JSON (no markdown fences, no extra text):
   "labs": [
     {
       "title": "Lab 1.1: Exact Title Here",
-      "objective": "One-sentence description of what students will accomplish.",
-      "keyTopics": "Core concepts, tools, and technologies covered in this lab.",
-      "handsOnActivity": "Specific tasks, configurations, and steps performed.",
-      "realWorldApplication": "How these skills apply in real IT/security environments."
+      "objective": "2-3 sentences describing the lab goal and what students will learn and accomplish.",
+      "keyTopics": "3-5 lines covering all core concepts, tools, technologies, and theories discussed in this lab.",
+      "handsOnActivity": "4-6 sentences detailing the specific tasks, configurations, commands, and step-by-step activities performed by students.",
+      "realWorldApplication": "2-3 sentences explaining how these skills apply in real IT/security/cloud environments and what professionals use them for."
     }
   ]
 }
