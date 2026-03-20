@@ -1,14 +1,11 @@
-// api/quota-check.js — Tests if API keys are active and responding
-// Called by the quota dashboard tab in the frontend
+// api/quota-check.js
 
-// Known Gemini free-tier models to try in order
 const GEMINI_MODELS = [
+    'gemini-3-flash-preview',
     'gemini-2.0-flash',
     'gemini-2.0-flash-lite',
     'gemini-1.5-flash',
     'gemini-1.5-flash-latest',
-    'gemini-1.5-flash-8b',
-    'gemini-pro',
 ];
 
 export default async function handler(req, res) {
@@ -20,35 +17,6 @@ export default async function handler(req, res) {
     const { api } = req.query;
     const start = Date.now();
 
-    // Special endpoint: find working model for a key
-    if (api === 'find-model') {
-        const key = process.env.GEMINI_API_KEY;
-        if (!key) return res.status(200).json({ ok: false, error: 'No key configured' });
-
-        for (const model of GEMINI_MODELS) {
-            const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
-            try {
-                const r = await fetch(url, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        contents: [{ parts: [{ text: 'hi' }] }],
-                        generationConfig: { maxOutputTokens: 5, temperature: 0 }
-                    })
-                });
-                const body = await r.text();
-                if (r.ok) {
-                    return res.status(200).json({ ok: true, model, ms: Date.now() - start });
-                }
-                // If quota exhausted, still note it worked before
-                if (r.status === 429) {
-                    return res.status(200).json({ ok: false, exhausted: true, model, ms: Date.now() - start });
-                }
-            } catch (_) {}
-        }
-        return res.status(200).json({ ok: false, error: 'No working model found for this key' });
-    }
-
     try {
         if (api === 'gemini' || api === 'gemini2') {
             const key = api === 'gemini2'
@@ -57,58 +25,76 @@ export default async function handler(req, res) {
 
             if (!key) return res.status(200).json({ ok: false, error: 'Key not configured in environment variables' });
 
-            // Try each model until one works
             for (const model of GEMINI_MODELS) {
                 const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
-                const r = await fetch(url, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        contents: [{ parts: [{ text: 'Reply with just: {"ok":true}' }] }],
-                        generationConfig: { maxOutputTokens: 20, temperature: 0 }
-                    })
-                });
+                let r, body;
+                try {
+                    r = await fetch(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            contents: [{ parts: [{ text: 'hi' }] }],
+                            generationConfig: { maxOutputTokens: 5, temperature: 0 }
+                        })
+                    });
+                    body = await r.text();
+                } catch (fetchErr) {
+                    continue;
+                }
 
                 const ms = Date.now() - start;
-                const body = await r.text();
 
+                // Quota exhausted
                 if (r.status === 429) {
                     return res.status(200).json({ ok: false, exhausted: true, ms, model });
                 }
 
+                // Model not found — try next
+                if (r.status === 404 || body.includes('not found for API version') || body.includes('is not supported')) {
+                    continue;
+                }
+
+                // Success
                 if (r.ok) {
                     return res.status(200).json({ ok: true, ms, model });
                 }
 
-                // Model not found — try next
-                if (r.status === 404 || body.includes('not found')) continue;
-
-                // Other error
+                // Other error — parse and return
                 let errMsg = `HTTP ${r.status}`;
-                try { errMsg = JSON.parse(body).error?.message || errMsg; } catch (_) {}
-                return res.status(200).json({ ok: false, error: errMsg, ms });
+                try { errMsg = JSON.parse(body).error?.message || errMsg; } catch (_) { errMsg = body.substring(0, 100); }
+
+                // If it's a quota/auth error stop trying
+                if (r.status === 403 || errMsg.includes('quota') || errMsg.includes('API_KEY_INVALID')) {
+                    return res.status(200).json({ ok: false, exhausted: true, ms, error: errMsg });
+                }
+
+                // Otherwise try next model
+                continue;
             }
 
-            return res.status(200).json({ ok: false, error: 'No supported Gemini model found for this key' });
+            return res.status(200).json({ ok: false, error: 'No supported Gemini model found for this API key', ms: Date.now() - start });
 
         } else if (api === 'groq') {
             const key = process.env.GROQ_API_KEY;
             if (!key) return res.status(200).json({ ok: false, error: 'Key not configured in environment variables' });
 
-            const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
-                body: JSON.stringify({
-                    model: 'llama-3.1-8b-instant',
-                    max_tokens: 5,
-                    temperature: 0,
-                    messages: [{ role: 'user', content: 'Say hi' }]
-                })
-            });
+            let r, body;
+            try {
+                r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+                    body: JSON.stringify({
+                        model: 'llama-3.1-8b-instant',
+                        max_tokens: 5, temperature: 0,
+                        messages: [{ role: 'user', content: 'hi' }]
+                    })
+                });
+                body = await r.text();
+            } catch (fetchErr) {
+                return res.status(200).json({ ok: false, error: fetchErr.message, ms: Date.now() - start });
+            }
 
             const ms = Date.now() - start;
-            const body = await r.text();
-
             if (r.status === 429) return res.status(200).json({ ok: false, exhausted: true, ms });
             if (!r.ok) {
                 let errMsg = `HTTP ${r.status}`;
@@ -118,78 +104,7 @@ export default async function handler(req, res) {
             return res.status(200).json({ ok: true, ms });
 
         } else {
-            return res.status(400).json({ ok: false, error: 'Invalid api parameter' });
-        }
-
-    } catch (err) {
-        return res.status(200).json({ ok: false, error: err.message, ms: Date.now() - start });
-    }
-}
-
-    try {
-        if (api === 'gemini' || api === 'gemini2') {
-            const key = api === 'gemini2'
-                ? process.env.GEMINI_API_KEY_2
-                : process.env.GEMINI_API_KEY;
-
-            if (!key) return res.status(200).json({ ok: false, error: 'Key not configured in environment variables' });
-
-            // Minimal test prompt — 1 token in, 1 token out
-            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${key}`;
-            const r = await fetch(url, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    contents: [{ parts: [{ text: 'Reply with just: {"ok":true}' }] }],
-                    generationConfig: { maxOutputTokens: 20, temperature: 0 }
-                })
-            });
-
-            const ms = Date.now() - start;
-            const body = await r.text();
-
-            if (r.status === 429) {
-                return res.status(200).json({ ok: false, exhausted: true, ms });
-            }
-            if (!r.ok) {
-                let errMsg = `HTTP ${r.status}`;
-                try { errMsg = JSON.parse(body).error?.message || errMsg; } catch (_) {}
-                return res.status(200).json({ ok: false, error: errMsg, ms });
-            }
-
-            return res.status(200).json({ ok: true, ms });
-
-        } else if (api === 'groq') {
-            const key = process.env.GROQ_API_KEY;
-            if (!key) return res.status(200).json({ ok: false, error: 'Key not configured in environment variables' });
-
-            const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
-                body: JSON.stringify({
-                    model: 'llama-3.1-8b-instant',
-                    max_tokens: 5,
-                    temperature: 0,
-                    messages: [{ role: 'user', content: 'Say hi' }]
-                })
-            });
-
-            const ms = Date.now() - start;
-            const body = await r.text();
-
-            if (r.status === 429) {
-                return res.status(200).json({ ok: false, exhausted: true, ms });
-            }
-            if (!r.ok) {
-                let errMsg = `HTTP ${r.status}`;
-                try { errMsg = JSON.parse(body).error?.message || errMsg; } catch (_) {}
-                return res.status(200).json({ ok: false, error: errMsg, ms });
-            }
-
-            return res.status(200).json({ ok: true, ms });
-
-        } else {
-            return res.status(400).json({ ok: false, error: 'Invalid api parameter' });
+            return res.status(200).json({ ok: false, error: 'Invalid api parameter' });
         }
 
     } catch (err) {
