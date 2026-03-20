@@ -648,8 +648,8 @@ async function generate() {
     document.getElementById('resultSection').style.display = 'none';
 
     try {
-        // ── Frontend batching — 5 files per API call (fits Vercel 60s limit) ──
-        const BATCH_SIZE = 5;
+        // ── Frontend batching — 3 files per API call for reliability ──
+        const BATCH_SIZE = 3;
         const batches = [];
         for (let i = 0; i < uploadedFiles.length; i += BATCH_SIZE) {
             batches.push(uploadedFiles.slice(i, i + BATCH_SIZE));
@@ -736,7 +736,10 @@ async function generate() {
             }
 
             // Track token usage for quota display
-            if (data.usage) trackBatchUsage(data.usedApi, data.usage);
+            if (data.usedApi) {
+                const tokens = data.usage?.totalTokens || Math.round(JSON.stringify(batches[b]).length / 4);
+                trackBatchUsage(data.usedApi, { totalTokens: tokens });
+            }
 
             if (b === 0 && data.summary?.courseOverview) courseOverview = data.summary.courseOverview;
             allLabs = allLabs.concat(receivedLabs);
