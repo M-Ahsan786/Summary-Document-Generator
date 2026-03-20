@@ -157,19 +157,27 @@ export default async function handler(req, res) {
 // Extract lab title from ## heading inside file
 // ═══════════════════════════════════════════════
 function extractLabTitle(content, filename, fallbackNum) {
-    if (!content) return `Lab ${fallbackNum}`;
-    const lines = content.split('\n');
-    for (const line of lines) {
-        const m = line.match(/^##\s+(.+)/);
-        if (m) {
-            return m[1]
-                .replace(/^Lab\s+[\d.]+\s*[:–-]\s*/i, '')
-                .trim()
-                || `Lab ${fallbackNum}`;
+    let title = '';
+
+    if (content) {
+        const lines = content.split('\n');
+        for (const line of lines) {
+            const m = line.match(/^##\s+(.+)/);
+            if (m) { title = m[1].trim(); break; }
         }
     }
-    // Fallback: use filename without extension
-    return filename.replace(/\.md$/i, '').replace(/[-_]/g, ' ').trim();
+
+    // Fallback to filename
+    if (!title) {
+        title = filename.replace(/\.md$/i, '').replace(/[-_]/g, ' ').trim();
+    }
+
+    // Ensure title starts with "Lab" word
+    if (!/^lab\s/i.test(title)) {
+        title = `Lab ${fallbackNum}: ${title}`;
+    }
+
+    return title;
 }
 
 // ═══════════════════════════════════════════════
@@ -364,26 +372,41 @@ async function callGroq(apiKey, prompt) {
 // ═══════════════════════════════════════════════
 function buildPrompt(totalFiles, batchSize, startNum, courseName, content, isFirst) {
     const overview = isFirst
-        ? `\nFirst, write a 3-5 sentence "courseOverview" summarizing the entire "${courseName}" course (${totalFiles} labs total).\n`
-        : `\nFor "courseOverview" write an empty string "" since this is not the first batch.\n`;
+        ? `First, write a 3-5 sentence "courseOverview" summarizing the entire "${courseName}" course (${totalFiles} labs total).`
+        : `For "courseOverview" write an empty string "" since this is not the first batch.`;
 
-    return `You are summarizing labs ${startNum} to ${startNum + batchSize - 1} (out of ${totalFiles} total) for the "${courseName}" course.
+    return `You are generating lab summaries for the "${courseName}" course.
+This batch contains labs ${startNum} to ${startNum + batchSize - 1} (out of ${totalFiles} total labs).
+
 ${overview}
-Then for each lab in this batch, generate a summary entry. Use the EXACT lab title provided in each === LAB FILE: Title === header.
 
-Respond with ONLY this JSON (no markdown, no extra text):
+For EACH lab file in this batch, generate exactly one summary entry.
+IMPORTANT RULES:
+- Use the EXACT lab title from each "=== LAB FILE: [title] ===" header as the "title" field
+- Keep the full title including "Lab 1.1:", "Lab 2.3:" etc prefix exactly as written
+- Maintain the same order as the files appear below
+- Generate a summary for EVERY lab file — do not skip any
+
+Respond with ONLY valid JSON (no markdown fences, no extra text):
 {
   "courseOverview": "...",
   "labs": [
     {
-      "title": "Exact title from the === LAB FILE === header",
-      "objective": "One-sentence description of the lab goal.",
-      "keyTopics": "1-2 lines on core concepts or technologies discussed.",
-      "handsOnActivity": "Short summary of tasks or configurations performed.",
-      "realWorldApplication": "One sentence on real-world IT application."
+      "title": "Lab 1.1: Exact Title Here",
+      "objective": "One-sentence description of what students will accomplish.",
+      "keyTopics": "Core concepts, tools, and technologies covered in this lab.",
+      "handsOnActivity": "Specific tasks, configurations, and steps performed.",
+      "realWorldApplication": "How these skills apply in real IT/security environments."
     }
   ]
 }
+
+Reference format example:
+Lab 4: Enforcing Password Security Policies
+Objective: Configure and test password policies at local and domain levels.
+Key Topics Covered: Local security policy, domain security policy, user authentication.
+Hands-On Activity: Removing a Windows computer from a domain, modifying local security policies, creating test users, verifying password policies, modifying domain policies, unlocking accounts.
+Real-World Application: IT professionals use these skills to enforce strong authentication and improve system security.
 
 LAB FILES:
 ${content}`;
@@ -411,7 +434,7 @@ async function buildDocx(data, courseName) {
             spacing: { before: 0, after: 320 },
             border: { bottom: { style: BorderStyle.SINGLE, size: 18, color: ACCENT } },
             children: [
-                new TextRun({ text: courseName, bold: true, size: 36, font: 'Aptos', color: DARK_BLUE })
+                new TextRun({ text: courseName, bold: true, size: 40, font: 'Aptos', color: DARK_BLUE })
             ]
         })
     );
