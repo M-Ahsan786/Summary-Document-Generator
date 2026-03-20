@@ -71,8 +71,11 @@ export default async function handler(req, res) {
     if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
     try {
-        const { files, courseName, batchIndex, totalFiles, exhaustedKeys: reqExhaustedKeys } = req.body;
+        const { files, courseName, batchIndex, totalFiles, startFileIndex, exhaustedKeys: reqExhaustedKeys } = req.body;
         const exhaustedKeys = reqExhaustedKeys || [];
+        const total   = totalFiles || files.length;
+        const startNum = (startFileIndex !== undefined ? startFileIndex : (batchIndex || 0) * files.length) + 1;
+        const isFirst  = (batchIndex || 0) === 0;
 
         if (!courseName || typeof courseName !== 'string')
             return res.status(400).json({ error: 'courseName is required' });
@@ -100,10 +103,6 @@ export default async function handler(req, res) {
             ...f,
             labTitle: extractLabTitle(f.content, f.name, i + 1)
         }));
-
-        const total = totalFiles || files.length;
-        const startNum = (batchIndex || 0) * files.length + 1;
-        const isFirst  = (batchIndex || 0) === 0;
 
         const combinedContent = filesWithTitles.map((f, i) =>
             `=== LAB FILE ${startNum + i}: ${f.labTitle} ===\n${f.content}`
@@ -222,7 +221,7 @@ async function callGemini(apiKey, prompt) {
         let res, rawBody;
         try {
             const controller = new AbortController();
-            const timer = setTimeout(() => controller.abort(), 12000); // 12s timeout per model
+            const timer = setTimeout(() => controller.abort(), 20000); // 20s timeout per model
             res = await fetch(url, {
                 method: 'POST',
                 signal: controller.signal,
