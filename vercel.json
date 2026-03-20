@@ -4,8 +4,8 @@
     { "source": "/(.*)", "destination": "/index.html" }
   ],
   "functions": {
-    "api/generate.js": {
-      "maxDuration": 60
-    }
+    "api/generate.js": { "maxDuration": 60 },
+    "api/quota-check.js": { "maxDuration": 30 },
+    "api/format.js": { "maxDuration": 30 }
   }
 }
