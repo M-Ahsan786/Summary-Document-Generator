@@ -236,7 +236,7 @@ async function callGemini(apiKey, prompt) {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     contents: [{ parts: [{ text: prompt }] }],
-                    generationConfig: { temperature: 0.4, maxOutputTokens: 8192 },
+                    generationConfig: { temperature: 0.4, maxOutputTokens: 16384 },
                     systemInstruction: {
                         parts: [{ text: 'You are a professional technical writer. Always respond with valid JSON only — no markdown fences, no explanation, no extra text before or after the JSON.' }]
                     }
@@ -381,11 +381,12 @@ This batch contains labs ${startNum} to ${startNum + batchSize - 1} (out of ${to
 ${overview}
 
 For EACH lab file in this batch, generate exactly one summary entry.
-IMPORTANT RULES:
+CRITICAL RULES:
+- The "labs" array MUST contain EXACTLY ${batchSize} entries — one per LAB FILE below
 - Use the EXACT lab title from each "=== LAB FILE: [title] ===" header as the "title" field
 - Keep the full title including "Lab 1.1:", "Lab 2.3:" etc prefix exactly as written
 - Maintain the same order as the files appear below
-- Generate a summary for EVERY lab file — do not skip any
+- Do NOT skip, combine, or omit any lab — all ${batchSize} must be present
 
 Respond with ONLY valid JSON (no markdown fences, no extra text):
 {
@@ -393,10 +394,10 @@ Respond with ONLY valid JSON (no markdown fences, no extra text):
   "labs": [
     {
       "title": "Lab 1.1: Exact Title Here",
-      "objective": "2-3 sentences describing the lab goal and what students will learn and accomplish.",
-      "keyTopics": "3-5 lines covering all core concepts, tools, technologies, and theories discussed in this lab.",
-      "handsOnActivity": "4-6 sentences detailing the specific tasks, configurations, commands, and step-by-step activities performed by students.",
-      "realWorldApplication": "2-3 sentences explaining how these skills apply in real IT/security/cloud environments and what professionals use them for."
+      "objective": "2 sentences describing the lab goal and what students accomplish.",
+      "keyTopics": "2-3 sentences covering core concepts, tools, and technologies.",
+      "handsOnActivity": "3-4 sentences detailing specific tasks, configurations, and steps performed.",
+      "realWorldApplication": "2 sentences explaining real-world IT/security application."
     }
   ]
 }
