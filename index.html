@@ -658,9 +658,12 @@ async function generate() {
         const exhaustedKeys = []; // track across batches
 
         for (let b = 0; b < totalBatches; b++) {
-            const pct = Math.round(((b) / totalBatches) * 80) + 5;
-            bar.style.width = `${pct}%`;
-            txt.textContent = `Processing batch ${b + 1} of ${totalBatches} (${batches[b].length} files)...`;
+            // Real percentage: each batch = equal share of 85% (5% start, 90% end)
+            const pctStart = Math.round((b / totalBatches) * 85) + 5;
+            const pctEnd   = Math.round(((b + 1) / totalBatches) * 85) + 5;
+            bar.style.width = `${pctStart}%`;
+            bar.style.transition = 'width 0.3s ease';
+            txt.textContent = `Batch ${b + 1}/${totalBatches} — Labs ${b * BATCH_SIZE + 1}–${Math.min((b + 1) * BATCH_SIZE, uploadedFiles.length)} of ${uploadedFiles.length} (${pctStart}%)...`;
 
             const response = await fetch('/api/generate', {
                 method: 'POST',
@@ -699,6 +702,10 @@ async function generate() {
             if (b === 0 && data.summary?.courseOverview) courseOverview = data.summary.courseOverview;
             if (data.summary?.labs) allLabs = allLabs.concat(data.summary.labs);
             lastFilename = data.filename;
+
+            // Update bar to end of this batch
+            bar.style.width = `${pctEnd}%`;
+            txt.textContent = `Batch ${b + 1}/${totalBatches} done — ${allLabs.length} labs processed (${pctEnd}%)`;
         }
 
         bar.style.width = '90%';
@@ -822,6 +829,15 @@ function resetAll() {
         const btn = document.getElementById('fmtBtn');
         btn.disabled = true;
         btn.innerHTML = '<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4-4m0 0l4-4m-4 4h12"/></svg> Apply Format';
+    } else if (currentTab === 'quota') {
+        // Reset all quota status cards back to default
+        ['gemini1','gemini2','gemini3','groq'].forEach(id => {
+            const el = document.getElementById(`qstatus-${id}`);
+            if (el) el.innerHTML = 'Click Check to test this API key';
+        });
+        // Remove any quota notification popup
+        const notif = document.getElementById('quotaAvailableNotif');
+        if (notif) notif.remove();
     }
 }
 
