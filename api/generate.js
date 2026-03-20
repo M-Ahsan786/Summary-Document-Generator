@@ -145,8 +145,12 @@ export default async function handler(req, res) {
 
         if (!summaryData) return res.status(500).json({ error: `All APIs failed: ${batchError}`, newlyExhausted });
 
+        // Extract usage metadata and remove from summaryData
+        const usage = summaryData.__usage || null;
+        delete summaryData.__usage;
+
         const filename = `${courseName.replace(/[^a-z0-9]/gi, '_')}_Summary.docx`;
-        return res.status(200).json({ ok: true, filename, summary: summaryData, usedApi, newlyExhausted });
+        return res.status(200).json({ ok: true, filename, summary: summaryData, usedApi, newlyExhausted, usage });
 
     } catch (err) {
         return res.status(500).json({ error: err.message });
@@ -306,7 +310,15 @@ async function callGemini(apiKey, prompt) {
         if (!rawText) { lastError = 'Empty text in response'; continue; }
 
         console.log(`Gemini success: model=${model}`);
-        return parseJsonSafe(rawText);
+        const parsed = parseJsonSafe(rawText);
+        // Attach token usage for quota tracking
+        parsed.__usage = {
+            promptTokens:     data.usageMetadata?.promptTokenCount     || 0,
+            candidateTokens:  data.usageMetadata?.candidatesTokenCount || 0,
+            totalTokens:      data.usageMetadata?.totalTokenCount      || 0,
+            model
+        };
+        return parsed;
     }
 
     throw new Error(`Gemini quota exceeded: all models failed. Last: ${lastError}`);
