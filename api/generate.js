@@ -111,9 +111,9 @@ export default async function handler(req, res) {
         const allLabs = [];
         let courseOverview = '';
         let lastUsedApi = '';
+        let keyIdx = 0; // round-robin index
 
-        // ── Process batches in parallel — assign each batch a Gemini key ──
-        async function processBatch(b) {
+        for (let b = 0; b < batches.length; b++) {
             const batch = batches[b];
             const isFirst = b === 0;
             const combinedContent = batch.map((f, i) =>
@@ -128,42 +128,32 @@ export default async function handler(req, res) {
             let batchData = null;
             let batchError = '';
 
-            // Assign key by round-robin (batch index % pool size)
-            const availableGemini = geminiPool.filter(k => !isExhausted(k.key));
+            // Get fresh list of non-exhausted Gemini keys
+            const available = geminiPool.filter(k => !isExhausted(k.key));
 
-            if (availableGemini.length > 0) {
-                const caller = availableGemini[b % availableGemini.length];
+            // Try keys starting from round-robin position
+            for (let attempt = 0; attempt < available.length; attempt++) {
+                const caller = available[keyIdx % available.length];
+                keyIdx++;
                 try {
-                    console.log(`Batch ${b+1}: using ${caller.name}`);
+                    console.log(`Batch ${b+1}: ${caller.name}`);
                     batchData = await callGemini(caller.key, prompt);
                     lastUsedApi = caller.name;
+                    break;
                 } catch (err) {
                     batchError = err.message;
-                    console.error(`${caller.name} batch ${b+1} failed: ${err.message}`);
                     if (isQuotaError(err.message)) markExhausted(caller.key);
-
-                    // Try other Gemini keys
-                    for (const alt of availableGemini.filter(k => k.key !== caller.key && !isExhausted(k.key))) {
-                        try {
-                            batchData = await callGemini(alt.key, prompt);
-                            lastUsedApi = alt.name;
-                            break;
-                        } catch (e2) {
-                            if (isQuotaError(e2.message)) markExhausted(alt.key);
-                            batchError = e2.message;
-                        }
-                    }
                 }
             }
 
             // Groq fallback
             if (!batchData && groqCaller && !isExhausted(groqCaller.key)) {
-                const groqContent = combinedContent.substring(0, 18000);
-                const groqPrompt = buildPrompt(
-                    filesWithTitles.length, batch.length,
-                    b * BATCH_SIZE + 1, courseName, groqContent, isFirst
-                );
                 try {
+                    const groqPrompt = buildPrompt(
+                        filesWithTitles.length, batch.length,
+                        b * BATCH_SIZE + 1, courseName,
+                        combinedContent.substring(0, 18000), isFirst
+                    );
                     batchData = await callGroq(groqCaller.key, groqPrompt);
                     lastUsedApi = 'Groq';
                 } catch (err) {
@@ -172,18 +162,13 @@ export default async function handler(req, res) {
                 }
             }
 
-            if (!batchData) throw new Error(`Batch ${b+1}/${batches.length} failed. Last error: ${batchError}`);
-            return { b, isFirst, batchData };
-        }
+            if (!batchData) throw new Error(`Batch ${b+1}/${batches.length} failed. Last: ${batchError}`);
 
-        // Run all batches in parallel
-        const results = await Promise.all(batches.map((_, b) => processBatch(b)));
-
-        // Merge results in order
-        results.sort((a, b) => a.b - b.b);
-        for (const { isFirst, batchData } of results) {
             if (isFirst && batchData.courseOverview) courseOverview = batchData.courseOverview;
             if (Array.isArray(batchData.labs)) allLabs.push(...batchData.labs);
+
+            // Small delay between batches to avoid rate limits
+            if (b < batches.length - 1) await new Promise(r => setTimeout(r, 500));
         }
 
         const summaryData = { courseOverview, labs: allLabs };
@@ -226,7 +211,14 @@ function extractLabTitle(content, filename, fallbackNum) {
 function parseJsonSafe(raw) {
     if (!raw || raw.trim() === '') throw new Error('Empty response from AI');
 
-    let cleaned = raw
+    // Detect plain error messages from Gemini (not JSON)
+    const trimmed = raw.trim();
+    if (trimmed.startsWith('An error') || trimmed.startsWith('A server') ||
+        trimmed.startsWith('Error') || trimmed.startsWith('Sorry')) {
+        throw new Error(`Gemini quota exceeded: ${trimmed.substring(0, 100)}`);
+    }
+
+    let cleaned = trimmed
         .replace(/^```json\s*/i, '')
         .replace(/^```\s*/i, '')
         .replace(/```\s*$/i, '')
@@ -236,14 +228,17 @@ function parseJsonSafe(raw) {
     const end   = cleaned.lastIndexOf('}');
 
     if (start === -1 || end === -1) {
-        // Log first 200 chars to help debug
+        // Looks like an error message — treat as quota error for fallback
+        if (cleaned.length < 300) {
+            throw new Error(`Gemini quota exceeded: ${cleaned}`);
+        }
         throw new Error(`AI returned non-JSON: "${cleaned.substring(0, 200)}"`);
     }
 
     try {
         return JSON.parse(cleaned.substring(start, end + 1));
     } catch (e) {
-        throw new Error(`JSON parse failed: ${e.message}. Raw start: "${cleaned.substring(start, start + 100)}"`);
+        throw new Error(`JSON parse failed: ${e.message}`);
     }
 }
 
