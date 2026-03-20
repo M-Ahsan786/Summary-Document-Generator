@@ -195,7 +195,6 @@ function extractLabTitle(content, filename, fallbackNum) {
 function parseJsonSafe(raw) {
     if (!raw || raw.trim() === '') throw new Error('Empty response from AI');
 
-    // Detect plain error messages from Gemini (not JSON)
     const trimmed = raw.trim();
     if (trimmed.startsWith('An error') || trimmed.startsWith('A server') ||
         trimmed.startsWith('Error') || trimmed.startsWith('Sorry')) {
@@ -212,18 +211,31 @@ function parseJsonSafe(raw) {
     const end   = cleaned.lastIndexOf('}');
 
     if (start === -1 || end === -1) {
-        // Looks like an error message — treat as quota error for fallback
-        if (cleaned.length < 300) {
-            throw new Error(`Gemini quota exceeded: ${cleaned}`);
-        }
+        if (cleaned.length < 300) throw new Error(`Gemini quota exceeded: ${cleaned}`);
         throw new Error(`AI returned non-JSON: "${cleaned.substring(0, 200)}"`);
     }
 
+    let parsed;
     try {
-        return JSON.parse(cleaned.substring(start, end + 1));
+        parsed = JSON.parse(cleaned.substring(start, end + 1));
     } catch (e) {
         throw new Error(`JSON parse failed: ${e.message}`);
     }
+
+    // Reject if labs contain placeholder text (AI hallucination)
+    if (parsed.labs && Array.isArray(parsed.labs)) {
+        const hasPlaceholder = parsed.labs.some(lab =>
+            (lab.title || '').includes('Exact Title Here') ||
+            (lab.objective || '').includes('sentences describing') ||
+            (lab.keyTopics || '').includes('sentences covering') ||
+            (lab.handsOnActivity || '').includes('sentences detailing')
+        );
+        if (hasPlaceholder) {
+            throw new Error('AI returned placeholder text instead of real content — retrying');
+        }
+    }
+
+    return parsed;
 }
 
 // ═══════════════════════════════════════════════
