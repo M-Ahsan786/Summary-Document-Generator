@@ -149,6 +149,11 @@ export default async function handler(req, res) {
         const usage = summaryData.__usage || null;
         delete summaryData.__usage;
 
+        // If API didn't return token count, estimate from prompt length (~4 chars per token)
+        if (usage && usage.totalTokens === 0) {
+            usage.totalTokens = Math.round(prompt.length / 4);
+        }
+
         const filename = `${courseName.replace(/[^a-z0-9]/gi, '_')}_Summary.docx`;
         return res.status(200).json({ ok: true, filename, summary: summaryData, usedApi, newlyExhausted, usage });
 
@@ -313,9 +318,9 @@ async function callGemini(apiKey, prompt) {
         const parsed = parseJsonSafe(rawText);
         // Attach token usage for quota tracking
         parsed.__usage = {
-            promptTokens:     data.usageMetadata?.promptTokenCount     || 0,
-            candidateTokens:  data.usageMetadata?.candidatesTokenCount || 0,
-            totalTokens:      data.usageMetadata?.totalTokenCount      || 0,
+            promptTokens:    data.usageMetadata?.promptTokenCount    || 0,
+            candidateTokens: data.usageMetadata?.candidateTokenCount || 0,
+            totalTokens:     data.usageMetadata?.totalTokenCount     || 0,
             model
         };
         return parsed;
@@ -395,31 +400,25 @@ ${overview}
 For EACH lab file in this batch, generate exactly one summary entry.
 CRITICAL RULES:
 - The "labs" array MUST contain EXACTLY ${batchSize} entries — one per LAB FILE below
-- Use the EXACT lab title from each "=== LAB FILE: [title] ===" header as the "title" field
-- Keep the full title including "Lab 1.1:", "Lab 2.3:" etc prefix exactly as written
+- Use the EXACT lab title from each === LAB FILE: [title] === header as the "title" field
+- Keep full title including "Lab 1.1:", "Lab 2.3:" prefix exactly as written
 - Maintain the same order as the files appear below
 - Do NOT skip, combine, or omit any lab — all ${batchSize} must be present
+- Fill every field with REAL content from the lab file — do NOT use placeholder text
 
 Respond with ONLY valid JSON (no markdown fences, no extra text):
 {
-  "courseOverview": "...",
+  "courseOverview": "3-5 sentence course summary here or empty string if not first batch.",
   "labs": [
     {
-      "title": "Lab 1.1: Exact Title Here",
-      "objective": "2 sentences describing the lab goal and what students accomplish.",
-      "keyTopics": "2-3 sentences covering core concepts, tools, and technologies.",
-      "handsOnActivity": "3-4 sentences detailing specific tasks, configurations, and steps performed.",
-      "realWorldApplication": "2 sentences explaining real-world IT/security application."
+      "title": "Lab 1.1: Deploying Virtual Machines in IaaS",
+      "objective": "Students will deploy a virtual machine using Azure QuickStart templates and configure deployment parameters.",
+      "keyTopics": "Azure Resource Manager templates, virtual machine sizing, deployment parameters, Azure portal navigation.",
+      "handsOnActivity": "Students log into Azure portal, navigate to QuickStart templates, select a VM template, configure parameters such as VM size and region, then deploy and verify the running VM.",
+      "realWorldApplication": "IT professionals use these skills to automate infrastructure deployments and manage cloud resources efficiently in enterprise environments."
     }
   ]
 }
-
-Reference format example:
-Lab 4: Enforcing Password Security Policies
-Objective: Configure and test password policies at local and domain levels.
-Key Topics Covered: Local security policy, domain security policy, user authentication.
-Hands-On Activity: Removing a Windows computer from a domain, modifying local security policies, creating test users, verifying password policies, modifying domain policies, unlocking accounts.
-Real-World Application: IT professionals use these skills to enforce strong authentication and improve system security.
 
 LAB FILES:
 ${content}`;
