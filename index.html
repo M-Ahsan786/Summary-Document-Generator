@@ -696,12 +696,36 @@ async function generate() {
 
             if (!response.ok || !data.ok) throw new Error(data.error || `Batch ${b+1} error`);
 
-            // Validate lab count — AI sometimes returns fewer labs
+            // Validate lab count — retry once if AI returned fewer labs
             const expectedCount = batches[b].length;
-            const receivedCount = data.summary?.labs?.length || 0;
-            if (receivedCount < expectedCount) {
-                console.warn(`Batch ${b+1}: expected ${expectedCount} labs, got ${receivedCount}`);
-                // Still use what we got — don't fail the whole generation
+            let receivedLabs = data.summary?.labs || [];
+
+            if (receivedLabs.length < expectedCount) {
+                console.warn(`Batch ${b+1}: expected ${expectedCount} labs, got ${receivedLabs.length} — retrying...`);
+                txt.textContent = `Batch ${b+1}/${totalBatches} — Retrying (got ${receivedLabs.length}/${expectedCount} labs)...`;
+
+                const retryRes = await fetch('/api/generate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        files: batches[b],
+                        courseName,
+                        batchIndex: b,
+                        totalBatches,
+                        totalFiles: uploadedFiles.length,
+                        startFileIndex: b * BATCH_SIZE,
+                        exhaustedKeys
+                    })
+                });
+                const retryRaw = await retryRes.text();
+                let retryData;
+                try { retryData = JSON.parse(retryRaw); } catch (_) {}
+
+                if (retryData?.ok && retryData.summary?.labs?.length >= receivedLabs.length) {
+                    receivedLabs = retryData.summary.labs;
+                    if (retryData.usage) trackBatchUsage(retryData.usedApi, retryData.usage);
+                    if (b === 0 && retryData.summary?.courseOverview) courseOverview = retryData.summary.courseOverview;
+                }
             }
 
             // Track newly exhausted keys for next batches
@@ -715,7 +739,7 @@ async function generate() {
             if (data.usage) trackBatchUsage(data.usedApi, data.usage);
 
             if (b === 0 && data.summary?.courseOverview) courseOverview = data.summary.courseOverview;
-            if (data.summary?.labs) allLabs = allLabs.concat(data.summary.labs);
+            allLabs = allLabs.concat(receivedLabs);
             lastFilename = data.filename;
 
             // Update bar to end of this batch
@@ -897,21 +921,23 @@ function renderUsageBars() {
         const el = document.getElementById(elId);
         if (!el) return;
         const used = usage[id] || 0;
-        if (used === 0) { el.innerHTML = ''; return; }
         const pct = Math.min(100, Math.round((used / limit) * 100));
         const remaining = Math.max(0, limit - used);
         const availPct = 100 - pct;
         const barColor = pct >= 80 ? '#FF6584' : pct >= 50 ? '#FFB86C' : color;
+        const limitStr = id === 'groq' ? '500K' : '1,000K';
         el.innerHTML = `
-            <div style="margin-top:6px;">
+            <div style="margin-top:8px;">
                 <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:4px;">
-                    <span>Used: <strong style="color:var(--text);">${used.toLocaleString()}</strong> / ${(limit/1000).toFixed(0)}K tokens</span>
+                    <span>Used today: <strong style="color:var(--text);">${used.toLocaleString()}</strong> / ${limitStr} tokens</span>
                     <span style="color:${barColor};font-weight:700;">${availPct}% available</span>
                 </div>
-                <div style="height:6px;background:rgba(255,255,255,0.07);border-radius:10px;overflow:hidden;">
-                    <div style="height:100%;width:${pct}%;background:${barColor};border-radius:10px;transition:width 0.6s ease;"></div>
+                <div style="height:6px;background:rgba(255,255,255,0.08);border-radius:10px;overflow:hidden;">
+                    <div style="height:100%;width:${pct}%;background:${barColor};border-radius:10px;transition:width 0.6s ease;min-width:${pct>0?'3px':'0'};"></div>
                 </div>
-                <div style="font-size:10px;color:var(--muted);margin-top:3px;">~${remaining.toLocaleString()} tokens remaining · resets 5:00 AM PKT</div>
+                <div style="font-size:10px;color:var(--muted);margin-top:3px;">
+                    ${used === 0 ? '✨ Full quota available' : `~${remaining.toLocaleString()} tokens remaining`} · resets 5:00 AM PKT
+                </div>
             </div>`;
     });
 }
@@ -1347,6 +1373,8 @@ async function checkGroqQuota() {
 }
 
 // Security
+// Render usage bars on load in case there's stored data
+setTimeout(renderUsageBars, 100);
 (function(){
     'use strict';
     document.addEventListener('contextmenu', e=>{ e.preventDefault(); return false; });
