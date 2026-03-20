@@ -893,6 +893,7 @@ function loadUsage() {
         const raw = localStorage.getItem(STORAGE_KEY);
         if (!raw) return {};
         const data = JSON.parse(raw);
+        // New UTC day — clear everything including exhausted flags
         if (data.date !== getTodayUTC()) return {};
         return data.usage || {};
     } catch (_) { return {}; }
@@ -909,6 +910,13 @@ function addTokenUsage(keyId, tokens) {
     renderUsageBars();
 }
 
+function markKeyExhaustedInBar(keyId) {
+    const usage = loadUsage();
+    usage[`${keyId}_exhausted`] = true;
+    saveUsage(usage);
+    renderUsageBars();
+}
+
 function renderUsageBars() {
     const usage = loadUsage();
     const configs = [
@@ -920,24 +928,28 @@ function renderUsageBars() {
     configs.forEach(({ id, elId, limit, color }) => {
         const el = document.getElementById(elId);
         if (!el) return;
-        const used = usage[id] || 0;
-        const pct = Math.min(100, Math.round((used / limit) * 100));
+        const isExhausted = usage[`${id}_exhausted`] === true;
+        const used = isExhausted ? limit : (usage[id] || 0);
+        const pct = isExhausted ? 100 : Math.min(100, Math.round((used / limit) * 100));
         const remaining = Math.max(0, limit - used);
         const availPct = 100 - pct;
-        const barColor = pct >= 80 ? '#FF6584' : pct >= 50 ? '#FFB86C' : color;
+        const barColor = isExhausted ? '#FF6584' : pct >= 80 ? '#FF6584' : pct >= 50 ? '#FFB86C' : color;
         const limitStr = id === 'groq' ? '500K' : '1,000K';
+        const bottomText = isExhausted
+            ? `<span style="color:#FF6584;font-weight:600;">❌ Quota exhausted — resets 5:00 AM PKT</span>`
+            : used === 0
+                ? `<span style="color:#43D9AD;">✨ Full quota available · resets 5:00 AM PKT</span>`
+                : `~${remaining.toLocaleString()} tokens remaining · resets 5:00 AM PKT`;
         el.innerHTML = `
             <div style="margin-top:8px;">
                 <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:4px;">
-                    <span>Used today: <strong style="color:var(--text);">${used.toLocaleString()}</strong> / ${limitStr} tokens</span>
-                    <span style="color:${barColor};font-weight:700;">${availPct}% available</span>
+                    <span>Used today: <strong style="color:var(--text);">${isExhausted ? limitStr : used.toLocaleString()}</strong> / ${limitStr} tokens</span>
+                    <span style="color:${barColor};font-weight:700;">${isExhausted ? '0%' : availPct + '%'} available</span>
                 </div>
                 <div style="height:6px;background:rgba(255,255,255,0.08);border-radius:10px;overflow:hidden;">
-                    <div style="height:100%;width:${pct}%;background:${barColor};border-radius:10px;transition:width 0.6s ease;min-width:${pct>0?'3px':'0'};"></div>
+                    <div style="height:100%;width:${pct}%;background:${barColor};border-radius:10px;transition:width 0.6s ease;"></div>
                 </div>
-                <div style="font-size:10px;color:var(--muted);margin-top:3px;">
-                    ${used === 0 ? '✨ Full quota available' : `~${remaining.toLocaleString()} tokens remaining`} · resets 5:00 AM PKT
-                </div>
+                <div style="font-size:10px;margin-top:3px;">${bottomText}</div>
             </div>`;
     });
 }
@@ -1325,6 +1337,7 @@ async function checkGeminiQuota(num) {
     const statusEl = document.getElementById(`qstatus-gemini${num}`);
     statusEl.innerHTML = '<span style="color:var(--muted);">⏳ Checking...</span>';
     const apiParam = num === 2 ? 'gemini2' : num === 3 ? 'gemini3' : 'gemini';
+    const keyId = String(num);
     try {
         const res = await fetch(`/api/quota-check?api=${apiParam}`);
         const text = await res.text();
@@ -1336,10 +1349,13 @@ async function checkGeminiQuota(num) {
         if (data.ok) {
             const modelInfo = data.model ? ` via ${data.model}` : '';
             statusEl.innerHTML = `<span style="color:#43D9AD;">✅ Quota available — Active & working${modelInfo} (${data.ms}ms)</span>`;
+            // Mark as not exhausted in usage — keep existing tracked value
         } else if (data.exhausted) {
             const nextReset = getNextResetUTC();
             const modelInfo = data.model ? ` [${data.model}]` : '';
             statusEl.innerHTML = `<span style="color:#FF6584;">❌ Quota exhausted${modelInfo} — Available again: <strong>${formatResetPKT(nextReset)}</strong></span>`;
+            // Mark usage bar as fully exhausted
+            markKeyExhaustedInBar(keyId);
         } else {
             statusEl.innerHTML = `<span style="color:#FFB86C;">⚠️ Error: ${escHtml(data.error || 'Unknown')}</span>`;
         }
