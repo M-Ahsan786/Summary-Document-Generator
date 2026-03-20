@@ -640,40 +640,86 @@ async function generate() {
     const bar  = document.getElementById('progressBar');
     const txt  = document.getElementById('progressText');
     prog.style.display = 'block';
-    bar.style.width = '15%';
-    txt.textContent = `Analyzing ${uploadedFiles.length} lab file${uploadedFiles.length !== 1 ? 's' : ''}...`;
-
+    bar.style.width = '5%';
     document.getElementById('resultSection').style.display = 'none';
 
     try {
-        bar.style.width = '40%';
-        txt.textContent = 'AI is reading and summarizing labs...';
-
-        const response = await fetch('/api/generate', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ files: uploadedFiles, courseName })
-        });
-
-        bar.style.width = '80%';
-        txt.textContent = 'Building Word document...';
-
-        // Safe parse — server might return HTML on timeout/crash
-        const rawText = await response.text();
-        let data;
-        try {
-            data = JSON.parse(rawText);
-        } catch (_) {
-            if (response.status === 504 || response.status === 502 || rawText.includes('FUNCTION_INVOCATION')) {
-                throw new Error('Server timeout — too many files at once. Try uploading fewer files (15-20) at a time.');
-            }
-            throw new Error(`Server returned unexpected response (${response.status}). Please try again.`);
+        // ── Frontend batching — 10 files per API call ──
+        const BATCH_SIZE = 10;
+        const batches = [];
+        for (let i = 0; i < uploadedFiles.length; i += BATCH_SIZE) {
+            batches.push(uploadedFiles.slice(i, i + BATCH_SIZE));
         }
 
-        if (!response.ok || !data.ok) throw new Error(data.error || `Server error ${response.status}`);
+        const totalBatches = batches.length;
+        let allLabs = [];
+        let courseOverview = '';
+        let lastFilename = '';
+        const exhaustedKeys = []; // track across batches
 
-        generatedDocx = data.docx;
-        generatedFilename = data.filename;
+        for (let b = 0; b < totalBatches; b++) {
+            const pct = Math.round(((b) / totalBatches) * 80) + 5;
+            bar.style.width = `${pct}%`;
+            txt.textContent = `Processing batch ${b + 1} of ${totalBatches} (${batches[b].length} files)...`;
+
+            const response = await fetch('/api/generate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    files: batches[b],
+                    courseName,
+                    batchIndex: b,
+                    totalBatches,
+                    totalFiles: uploadedFiles.length,
+                    exhaustedKeys   // pass known exhausted keys to each batch
+                })
+            });
+
+            const rawText = await response.text();
+            let data;
+            try {
+                data = JSON.parse(rawText);
+            } catch (_) {
+                if (rawText.includes('FUNCTION_INVOCATION') || response.status >= 502) {
+                    throw new Error(`Batch ${b+1} timed out. Please try again.`);
+                }
+                throw new Error(`Batch ${b+1} server error (${response.status}). Please try again.`);
+            }
+
+            if (!response.ok || !data.ok) throw new Error(data.error || `Batch ${b+1} error`);
+
+            // Track newly exhausted keys for next batches
+            if (data.newlyExhausted?.length) {
+                for (const k of data.newlyExhausted) {
+                    if (!exhaustedKeys.includes(k)) exhaustedKeys.push(k);
+                }
+            }
+
+            if (b === 0 && data.summary?.courseOverview) courseOverview = data.summary.courseOverview;
+            if (data.summary?.labs) allLabs = allLabs.concat(data.summary.labs);
+            lastFilename = data.filename;
+        }
+
+        bar.style.width = '90%';
+        txt.textContent = 'Building final Word document...';
+
+        // Build docx from merged summary
+        const mergedSummary = { courseOverview, labs: allLabs };
+        const buildRes = await fetch('/api/build-docx', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ summary: mergedSummary, courseName })
+        });
+
+        const buildRaw = await buildRes.text();
+        let buildData;
+        try { buildData = JSON.parse(buildRaw); } catch (_) {
+            throw new Error('Failed to build final document. Please try again.');
+        }
+        if (!buildRes.ok || !buildData.ok) throw new Error(buildData.error || 'Document build failed');
+
+        generatedDocx = buildData.docx;
+        generatedFilename = buildData.filename;
 
         bar.style.width = '100%';
         txt.textContent = 'Document ready!';
@@ -682,7 +728,7 @@ async function generate() {
             prog.style.display = 'none';
             btn.disabled = false;
             btn.innerHTML = '<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg> Generate Summary Document';
-            showResult(data);
+            showResult(buildData);
         }, 600);
 
     } catch (err) {
