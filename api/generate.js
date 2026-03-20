@@ -71,13 +71,16 @@ export default async function handler(req, res) {
     if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
     try {
-        const { files, courseName } = req.body;
-        if (!files || !Array.isArray(files) || files.length === 0)
-            return res.status(400).json({ error: 'files array is required' });
+        const { files, courseName, batchIndex, totalFiles, exhaustedKeys: reqExhaustedKeys } = req.body;
+        const exhaustedKeys = reqExhaustedKeys || [];
+
         if (!courseName || typeof courseName !== 'string')
             return res.status(400).json({ error: 'courseName is required' });
 
-        // ── All available keys ──
+        // ── Process a batch of files ──
+        if (!files || !Array.isArray(files) || files.length === 0)
+            return res.status(400).json({ error: 'files array is required' });
+
         const geminiKey1 = process.env.GEMINI_API_KEY;
         const geminiKey2 = process.env.GEMINI_API_KEY_2;
         const geminiKey3 = process.env.GEMINI_API_KEY_3;
@@ -86,100 +89,65 @@ export default async function handler(req, res) {
         if (!geminiKey1 && !geminiKey2 && !geminiKey3 && !groqKey)
             return res.status(500).json({ error: 'No API keys configured on server' });
 
-        // ── Build Gemini pool (only non-exhausted keys) ──
+        // Frontend passes which keys are known exhausted
         const geminiPool = [];
-        if (geminiKey1) geminiPool.push({ name: 'Gemini-1', key: geminiKey1 });
-        if (geminiKey2) geminiPool.push({ name: 'Gemini-2', key: geminiKey2 });
-        if (geminiKey3) geminiPool.push({ name: 'Gemini-3', key: geminiKey3 });
+        if (geminiKey1 && !exhaustedKeys.includes('1')) geminiPool.push({ name: 'Gemini-1', key: geminiKey1, id: '1' });
+        if (geminiKey2 && !exhaustedKeys.includes('2')) geminiPool.push({ name: 'Gemini-2', key: geminiKey2, id: '2' });
+        if (geminiKey3 && !exhaustedKeys.includes('3')) geminiPool.push({ name: 'Gemini-3', key: geminiKey3, id: '3' });
+        const groqCaller = groqKey && !exhaustedKeys.includes('groq') ? { name: 'Groq', key: groqKey } : null;
 
-        // Groq as last-resort fallback
-        const groqCaller = groqKey ? { name: 'Groq', key: groqKey } : null;
-
-        // Extract lab titles from ## heading in each file
         const filesWithTitles = files.map((f, i) => ({
             ...f,
             labTitle: extractLabTitle(f.content, f.name, i + 1)
         }));
 
-        // Process in batches of 10
-        const BATCH_SIZE = 10;
-        const batches = [];
-        for (let i = 0; i < filesWithTitles.length; i += BATCH_SIZE) {
-            batches.push(filesWithTitles.slice(i, i + BATCH_SIZE));
-        }
+        const total = totalFiles || files.length;
+        const startNum = (batchIndex || 0) * files.length + 1;
+        const isFirst  = (batchIndex || 0) === 0;
 
-        const allLabs = [];
-        let courseOverview = '';
-        let lastUsedApi = '';
-        let keyIdx = 0; // round-robin index
+        const combinedContent = filesWithTitles.map((f, i) =>
+            `=== LAB FILE ${startNum + i}: ${f.labTitle} ===\n${f.content}`
+        ).join('\n\n');
 
-        for (let b = 0; b < batches.length; b++) {
-            const batch = batches[b];
-            const isFirst = b === 0;
-            const combinedContent = batch.map((f, i) =>
-                `=== LAB FILE ${b * BATCH_SIZE + i + 1}: ${f.labTitle} ===\n${f.content}`
-            ).join('\n\n');
+        const prompt = buildPrompt(total, files.length, startNum, courseName, combinedContent, isFirst);
 
-            const prompt = buildPrompt(
-                filesWithTitles.length, batch.length,
-                b * BATCH_SIZE + 1, courseName, combinedContent, isFirst
-            );
+        let summaryData = null;
+        let usedApi = '';
+        let batchError = '';
+        const newlyExhausted = []; // keys exhausted during this call
 
-            let batchData = null;
-            let batchError = '';
-
-            // Get fresh list of non-exhausted Gemini keys
-            const available = geminiPool.filter(k => !isExhausted(k.key));
-
-            // Try keys starting from round-robin position
-            for (let attempt = 0; attempt < available.length; attempt++) {
-                const caller = available[keyIdx % available.length];
-                keyIdx++;
-                try {
-                    console.log(`Batch ${b+1}: ${caller.name}`);
-                    batchData = await callGemini(caller.key, prompt);
-                    lastUsedApi = caller.name;
-                    break;
-                } catch (err) {
-                    batchError = err.message;
-                    if (isQuotaError(err.message)) markExhausted(caller.key);
+        // Try Gemini keys — all available ones
+        for (const caller of geminiPool) {
+            try {
+                summaryData = await callGemini(caller.key, prompt);
+                usedApi = caller.name;
+                break;
+            } catch (err) {
+                batchError = err.message;
+                if (isQuotaError(err.message)) {
+                    markExhausted(caller.key);
+                    newlyExhausted.push(caller.id);
                 }
             }
-
-            // Groq fallback
-            if (!batchData && groqCaller && !isExhausted(groqCaller.key)) {
-                try {
-                    const groqPrompt = buildPrompt(
-                        filesWithTitles.length, batch.length,
-                        b * BATCH_SIZE + 1, courseName,
-                        combinedContent.substring(0, 18000), isFirst
-                    );
-                    batchData = await callGroq(groqCaller.key, groqPrompt);
-                    lastUsedApi = 'Groq';
-                } catch (err) {
-                    batchError = err.message;
-                    if (isQuotaError(err.message)) markExhausted(groqCaller.key);
-                }
-            }
-
-            if (!batchData) throw new Error(`Batch ${b+1}/${batches.length} failed. Last: ${batchError}`);
-
-            if (isFirst && batchData.courseOverview) courseOverview = batchData.courseOverview;
-            if (Array.isArray(batchData.labs)) allLabs.push(...batchData.labs);
-
-            // Small delay between batches to avoid rate limits
-            if (b < batches.length - 1) await new Promise(r => setTimeout(r, 500));
         }
 
-        const summaryData = { courseOverview, labs: allLabs };
-        const docBuffer = await buildDocx(summaryData, courseName);
-        const base64 = docBuffer.toString('base64');
+        // Groq fallback
+        if (!summaryData && groqCaller) {
+            try {
+                const groqPrompt = buildPrompt(total, files.length, startNum, courseName,
+                    combinedContent.substring(0, 18000), isFirst);
+                summaryData = await callGroq(groqCaller.key, groqPrompt);
+                usedApi = 'Groq';
+            } catch (err) {
+                batchError = err.message;
+                if (isQuotaError(err.message)) newlyExhausted.push('groq');
+            }
+        }
+
+        if (!summaryData) return res.status(500).json({ error: `All APIs failed: ${batchError}`, newlyExhausted });
+
         const filename = `${courseName.replace(/[^a-z0-9]/gi, '_')}_Summary.docx`;
-
-        return res.status(200).json({
-            ok: true, docx: base64, filename,
-            summary: summaryData, usedApi: lastUsedApi
-        });
+        return res.status(200).json({ ok: true, filename, summary: summaryData, usedApi, newlyExhausted });
 
     } catch (err) {
         return res.status(500).json({ error: err.message });
