@@ -18,10 +18,12 @@ export default async function handler(req, res) {
     const start = Date.now();
 
     try {
-        if (api === 'gemini' || api === 'gemini2') {
+        if (api === 'gemini' || api === 'gemini2' || api === 'gemini3') {
             const key = api === 'gemini2'
                 ? process.env.GEMINI_API_KEY_2
-                : process.env.GEMINI_API_KEY;
+                : api === 'gemini3'
+                    ? process.env.GEMINI_API_KEY_3
+                    : process.env.GEMINI_API_KEY;
 
             if (!key) return res.status(200).json({ ok: false, error: 'Key not configured in environment variables' });
 
