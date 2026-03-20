@@ -112,10 +112,8 @@ export default async function handler(req, res) {
         let courseOverview = '';
         let lastUsedApi = '';
 
-        // ── Round-robin index — rotates across Gemini keys per batch ──
-        let geminiRoundRobin = 0;
-
-        for (let b = 0; b < batches.length; b++) {
+        // ── Process batches in parallel — assign each batch a Gemini key ──
+        async function processBatch(b) {
             const batch = batches[b];
             const isFirst = b === 0;
             const combinedContent = batch.map((f, i) =>
@@ -130,33 +128,35 @@ export default async function handler(req, res) {
             let batchData = null;
             let batchError = '';
 
-            // ── Try Gemini keys in round-robin order ──
+            // Assign key by round-robin (batch index % pool size)
             const availableGemini = geminiPool.filter(k => !isExhausted(k.key));
 
-            for (let attempt = 0; attempt < availableGemini.length; attempt++) {
-                // Pick next key in round-robin
-                const idx = geminiRoundRobin % availableGemini.length;
-                geminiRoundRobin++;
-                const caller = availableGemini[idx];
-
+            if (availableGemini.length > 0) {
+                const caller = availableGemini[b % availableGemini.length];
                 try {
-                    console.log(`Batch ${b+1}: trying ${caller.name}`);
+                    console.log(`Batch ${b+1}: using ${caller.name}`);
                     batchData = await callGemini(caller.key, prompt);
                     lastUsedApi = caller.name;
-                    break;
                 } catch (err) {
                     batchError = err.message;
                     console.error(`${caller.name} batch ${b+1} failed: ${err.message}`);
-                    if (isQuotaError(err.message)) {
-                        markExhausted(caller.key);
-                        // Remove from available list and retry with next
-                        availableGemini.splice(idx, 1);
-                        geminiRoundRobin = 0; // reset index after removal
+                    if (isQuotaError(err.message)) markExhausted(caller.key);
+
+                    // Try other Gemini keys
+                    for (const alt of availableGemini.filter(k => k.key !== caller.key && !isExhausted(k.key))) {
+                        try {
+                            batchData = await callGemini(alt.key, prompt);
+                            lastUsedApi = alt.name;
+                            break;
+                        } catch (e2) {
+                            if (isQuotaError(e2.message)) markExhausted(alt.key);
+                            batchError = e2.message;
+                        }
                     }
                 }
             }
 
-            // ── Groq fallback if all Gemini keys exhausted/failed ──
+            // Groq fallback
             if (!batchData && groqCaller && !isExhausted(groqCaller.key)) {
                 const groqContent = combinedContent.substring(0, 18000);
                 const groqPrompt = buildPrompt(
@@ -164,7 +164,6 @@ export default async function handler(req, res) {
                     b * BATCH_SIZE + 1, courseName, groqContent, isFirst
                 );
                 try {
-                    console.log(`Batch ${b+1}: falling back to Groq`);
                     batchData = await callGroq(groqCaller.key, groqPrompt);
                     lastUsedApi = 'Groq';
                 } catch (err) {
@@ -173,21 +172,18 @@ export default async function handler(req, res) {
                 }
             }
 
-            if (!batchData) {
-                throw new Error(`Batch ${b+1}/${batches.length} failed on all APIs. Last error: ${batchError}`);
-            }
+            if (!batchData) throw new Error(`Batch ${b+1}/${batches.length} failed. Last error: ${batchError}`);
+            return { b, isFirst, batchData };
+        }
 
-            if (isFirst && batchData.courseOverview) {
-                courseOverview = batchData.courseOverview;
-            }
-            if (Array.isArray(batchData.labs)) {
-                allLabs.push(...batchData.labs);
-            }
+        // Run all batches in parallel
+        const results = await Promise.all(batches.map((_, b) => processBatch(b)));
 
-            // Small delay between batches
-            if (b < batches.length - 1) {
-                await new Promise(r => setTimeout(r, 800));
-            }
+        // Merge results in order
+        results.sort((a, b) => a.b - b.b);
+        for (const { isFirst, batchData } of results) {
+            if (isFirst && batchData.courseOverview) courseOverview = batchData.courseOverview;
+            if (Array.isArray(batchData.labs)) allLabs.push(...batchData.labs);
         }
 
         const summaryData = { courseOverview, labs: allLabs };
@@ -263,7 +259,7 @@ async function callGemini(apiKey, prompt) {
         let res, rawBody;
         try {
             const controller = new AbortController();
-            const timer = setTimeout(() => controller.abort(), 25000); // 25s timeout per model
+            const timer = setTimeout(() => controller.abort(), 12000); // 12s timeout per model
             res = await fetch(url, {
                 method: 'POST',
                 signal: controller.signal,
