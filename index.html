@@ -644,8 +644,8 @@ async function generate() {
     document.getElementById('resultSection').style.display = 'none';
 
     try {
-        // ── Frontend batching — 10 files per API call ──
-        const BATCH_SIZE = 10;
+        // ── Frontend batching — 5 files per API call (fits Vercel 60s limit) ──
+        const BATCH_SIZE = 5;
         const batches = [];
         for (let i = 0; i < uploadedFiles.length; i += BATCH_SIZE) {
             batches.push(uploadedFiles.slice(i, i + BATCH_SIZE));
@@ -671,7 +671,8 @@ async function generate() {
                     batchIndex: b,
                     totalBatches,
                     totalFiles: uploadedFiles.length,
-                    exhaustedKeys   // pass known exhausted keys to each batch
+                    startFileIndex: b * BATCH_SIZE,
+                    exhaustedKeys
                 })
             });
 
