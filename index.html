@@ -1130,7 +1130,12 @@ async function checkGeminiQuota(num) {
 
     try {
         const res = await fetch(`/api/quota-check?api=gemini${num === 2 ? '2' : ''}`);
-        const data = await res.json();
+        const text = await res.text();
+        let data;
+        try { data = JSON.parse(text); } catch(_) {
+            statusEl.innerHTML = `<span style="color:#FFB86C;">⚠️ Server error: ${escHtml(text.substring(0,80))}</span>`;
+            return;
+        }
         if (data.ok) {
             const modelInfo = data.model ? ` via ${data.model}` : '';
             statusEl.innerHTML = `<span style="color:#43D9AD;">✅ Quota available — Active & working${modelInfo} (${data.ms}ms)</span>`;
@@ -1152,7 +1157,12 @@ async function checkGroqQuota() {
 
     try {
         const res = await fetch('/api/quota-check?api=groq');
-        const data = await res.json();
+        const text = await res.text();
+        let data;
+        try { data = JSON.parse(text); } catch(_) {
+            statusEl.innerHTML = `<span style="color:#FFB86C;">⚠️ Server error: ${escHtml(text.substring(0,80))}</span>`;
+            return;
+        }
         if (data.ok) {
             statusEl.innerHTML = `<span style="color:#43D9AD;">✅ Quota available — Active & working (${data.ms}ms)</span>`;
         } else if (data.exhausted) {
