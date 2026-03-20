@@ -343,7 +343,8 @@
                         </div>
                         <button onclick="checkGeminiQuota(1)" style="background:rgba(67,217,173,0.1);border:1px solid rgba(67,217,173,0.25);color:#43D9AD;border-radius:8px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer;" onmouseover="this.style.background='rgba(67,217,173,0.2)'" onmouseout="this.style.background='rgba(67,217,173,0.1)'">Check</button>
                     </div>
-                    <div id="qstatus-gemini1" style="font-size:12px;color:var(--muted);">Click Check to test this API key</div>
+                    <div id="qstatus-gemini1" style="font-size:12px;color:var(--muted);margin-bottom:8px;">Click Check to test this API key</div>
+                    <div id="qusage-gemini1"></div>
                 </div>
 
                 <!-- Gemini 2 -->
@@ -360,7 +361,8 @@
                         </div>
                         <button onclick="checkGeminiQuota(2)" style="background:rgba(108,99,255,0.1);border:1px solid rgba(108,99,255,0.25);color:#a09aff;border-radius:8px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer;" onmouseover="this.style.background='rgba(108,99,255,0.2)'" onmouseout="this.style.background='rgba(108,99,255,0.1)'">Check</button>
                     </div>
-                    <div id="qstatus-gemini2" style="font-size:12px;color:var(--muted);">Click Check to test this API key</div>
+                    <div id="qstatus-gemini2" style="font-size:12px;color:var(--muted);margin-bottom:8px;">Click Check to test this API key</div>
+                    <div id="qusage-gemini2"></div>
                 </div>
 
                 <!-- Gemini 3 -->
@@ -377,7 +379,8 @@
                         </div>
                         <button onclick="checkGeminiQuota(3)" style="background:rgba(255,184,108,0.1);border:1px solid rgba(255,184,108,0.25);color:#FFB86C;border-radius:8px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer;" onmouseover="this.style.background='rgba(255,184,108,0.2)'" onmouseout="this.style.background='rgba(255,184,108,0.1)'">Check</button>
                     </div>
-                    <div id="qstatus-gemini3" style="font-size:12px;color:var(--muted);">Click Check to test this API key</div>
+                    <div id="qstatus-gemini3" style="font-size:12px;color:var(--muted);margin-bottom:8px;">Click Check to test this API key</div>
+                    <div id="qusage-gemini3"></div>
                 </div>
 
                 <!-- Groq -->
@@ -394,7 +397,8 @@
                         </div>
                         <button onclick="checkGroqQuota()" style="background:rgba(255,101,132,0.1);border:1px solid rgba(255,101,132,0.25);color:#FF6584;border-radius:8px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer;" onmouseover="this.style.background='rgba(255,101,132,0.2)'" onmouseout="this.style.background='rgba(255,101,132,0.1)'">Check</button>
                     </div>
-                    <div id="qstatus-groq" style="font-size:12px;color:var(--muted);">Click Check to test this API key</div>
+                    <div id="qstatus-groq" style="font-size:12px;color:var(--muted);margin-bottom:8px;">Click Check to test this API key</div>
+                    <div id="qusage-groq"></div>
                 </div>
 
             </div>
@@ -707,6 +711,9 @@ async function generate() {
                 }
             }
 
+            // Track token usage for quota display
+            if (data.usage) trackBatchUsage(data.usedApi, data.usage);
+
             if (b === 0 && data.summary?.courseOverview) courseOverview = data.summary.courseOverview;
             if (data.summary?.labs) allLabs = allLabs.concat(data.summary.labs);
             lastFilename = data.filename;
@@ -838,18 +845,83 @@ function resetAll() {
         btn.disabled = true;
         btn.innerHTML = '<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4-4m0 0l4-4m-4 4h12"/></svg> Apply Format';
     } else if (currentTab === 'quota') {
-        // Reset all quota status cards back to default
         ['gemini1','gemini2','gemini3','groq'].forEach(id => {
             const el = document.getElementById(`qstatus-${id}`);
             if (el) el.innerHTML = 'Click Check to test this API key';
+            const uel = document.getElementById(`qusage-${id}`);
+            if (uel) uel.innerHTML = '';
         });
-        // Remove any quota notification popup
         const notif = document.getElementById('quotaAvailableNotif');
         if (notif) notif.remove();
     }
 }
 
 function escHtml(t) { const d=document.createElement('div'); d.textContent=t||''; return d.innerHTML; }
+
+// ── Token Usage Tracking ──
+const TOKEN_LIMITS = { gemini: 1000000, groq: 500000 };
+const STORAGE_KEY = 'xtremelabs_token_usage';
+
+function getTodayUTC() { return new Date().toISOString().slice(0, 10); }
+
+function loadUsage() {
+    try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return {};
+        const data = JSON.parse(raw);
+        if (data.date !== getTodayUTC()) return {};
+        return data.usage || {};
+    } catch (_) { return {}; }
+}
+
+function saveUsage(usage) {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ date: getTodayUTC(), usage })); } catch (_) {}
+}
+
+function addTokenUsage(keyId, tokens) {
+    const usage = loadUsage();
+    usage[keyId] = (usage[keyId] || 0) + tokens;
+    saveUsage(usage);
+    renderUsageBars();
+}
+
+function renderUsageBars() {
+    const usage = loadUsage();
+    const configs = [
+        { id: '1',    elId: 'qusage-gemini1', limit: TOKEN_LIMITS.gemini, color: '#43D9AD' },
+        { id: '2',    elId: 'qusage-gemini2', limit: TOKEN_LIMITS.gemini, color: '#a09aff' },
+        { id: '3',    elId: 'qusage-gemini3', limit: TOKEN_LIMITS.gemini, color: '#FFB86C' },
+        { id: 'groq', elId: 'qusage-groq',    limit: TOKEN_LIMITS.groq,   color: '#FF6584' },
+    ];
+    configs.forEach(({ id, elId, limit, color }) => {
+        const el = document.getElementById(elId);
+        if (!el) return;
+        const used = usage[id] || 0;
+        if (used === 0) { el.innerHTML = ''; return; }
+        const pct = Math.min(100, Math.round((used / limit) * 100));
+        const remaining = Math.max(0, limit - used);
+        const availPct = 100 - pct;
+        const barColor = pct >= 80 ? '#FF6584' : pct >= 50 ? '#FFB86C' : color;
+        el.innerHTML = `
+            <div style="margin-top:6px;">
+                <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:4px;">
+                    <span>Used: <strong style="color:var(--text);">${used.toLocaleString()}</strong> / ${(limit/1000).toFixed(0)}K tokens</span>
+                    <span style="color:${barColor};font-weight:700;">${availPct}% available</span>
+                </div>
+                <div style="height:6px;background:rgba(255,255,255,0.07);border-radius:10px;overflow:hidden;">
+                    <div style="height:100%;width:${pct}%;background:${barColor};border-radius:10px;transition:width 0.6s ease;"></div>
+                </div>
+                <div style="font-size:10px;color:var(--muted);margin-top:3px;">~${remaining.toLocaleString()} tokens remaining · resets 5:00 AM PKT</div>
+            </div>`;
+    });
+}
+
+function trackBatchUsage(usedApi, usage) {
+    if (!usage || !usage.totalTokens) return;
+    const keyMap = { 'Gemini-1': '1', 'Gemini-2': '2', 'Gemini-3': '3', 'Groq': 'groq' };
+    const keyId = keyMap[usedApi];
+    if (keyId) addTokenUsage(keyId, usage.totalTokens);
+}
 
 // ── Tab switching ──
 function switchTab(tab) {
@@ -859,7 +931,7 @@ function switchTab(tab) {
     document.getElementById('tab-generator').classList.toggle('active', tab === 'generator');
     document.getElementById('tab-quota').classList.toggle('active', tab === 'quota');
     document.getElementById('tab-format').classList.toggle('active', tab === 'format');
-    if (tab === 'quota') startCountdown();
+    if (tab === 'quota') { startCountdown(); renderUsageBars(); }
 }
 
 // ── Format Options ──
