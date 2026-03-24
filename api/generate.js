@@ -73,16 +73,14 @@ export default async function handler(req, res) {
     try {
         const { files, courseName, batchIndex, totalFiles, startFileIndex, exhaustedKeys: reqExhaustedKeys } = req.body;
         const exhaustedKeys = reqExhaustedKeys || [];
-        const total   = totalFiles || files.length;
+
+        if (!courseName) return res.status(400).json({ error: 'courseName required' });
+        if (!files || !Array.isArray(files) || files.length === 0)
+            return res.status(400).json({ error: 'files required' });
+
+        const total    = totalFiles || files.length;
         const startNum = (startFileIndex !== undefined ? startFileIndex : (batchIndex || 0) * files.length) + 1;
         const isFirst  = (batchIndex || 0) === 0;
-
-        if (!courseName || typeof courseName !== 'string')
-            return res.status(400).json({ error: 'courseName is required' });
-
-        // ── Process a batch of files ──
-        if (!files || !Array.isArray(files) || files.length === 0)
-            return res.status(400).json({ error: 'files array is required' });
 
         const geminiKey1 = process.env.GEMINI_API_KEY;
         const geminiKey2 = process.env.GEMINI_API_KEY_2;
@@ -90,107 +88,95 @@ export default async function handler(req, res) {
         const groqKey    = process.env.GROQ_API_KEY;
 
         if (!geminiKey1 && !geminiKey2 && !geminiKey3 && !groqKey)
-            return res.status(500).json({ error: 'No API keys configured on server' });
+            return res.status(500).json({ error: 'No API keys configured' });
 
-        // Frontend passes which keys are known exhausted
+        // Build available key pool
         const geminiPool = [];
-        if (geminiKey1 && !exhaustedKeys.includes('1')) geminiPool.push({ name: 'Gemini-1', key: geminiKey1, id: '1' });
-        if (geminiKey2 && !exhaustedKeys.includes('2')) geminiPool.push({ name: 'Gemini-2', key: geminiKey2, id: '2' });
-        if (geminiKey3 && !exhaustedKeys.includes('3')) geminiPool.push({ name: 'Gemini-3', key: geminiKey3, id: '3' });
-        const groqCaller = groqKey && !exhaustedKeys.includes('groq') ? { name: 'Groq', key: groqKey } : null;
+        if (geminiKey1 && !exhaustedKeys.includes('1') && !isExhausted(geminiKey1))
+            geminiPool.push({ name: 'Gemini-1', key: geminiKey1, id: '1' });
+        if (geminiKey2 && !exhaustedKeys.includes('2') && !isExhausted(geminiKey2))
+            geminiPool.push({ name: 'Gemini-2', key: geminiKey2, id: '2' });
+        if (geminiKey3 && !exhaustedKeys.includes('3') && !isExhausted(geminiKey3))
+            geminiPool.push({ name: 'Gemini-3', key: geminiKey3, id: '3' });
+        const groqAvail = groqKey && !exhaustedKeys.includes('groq') && !isExhausted(groqKey);
 
         const filesWithTitles = files.map((f, i) => ({
             ...f,
-            labTitle: extractLabTitle(f.content, f.name, i + 1)
+            labTitle: extractLabTitle(f.content, f.name, startNum + i)
         }));
 
         const combinedContent = filesWithTitles.map((f, i) =>
             `=== LAB FILE ${startNum + i}: ${f.labTitle} ===\n${f.content}`
-        ).join('\n\n');
+        ).join('\n\n---\n\n');
 
         const prompt = buildPrompt(total, files.length, startNum, courseName, combinedContent, isFirst);
 
-        let summaryData = null;
+        let bestResult = null;    // best partial result so far
         let usedApi = '';
-        let batchError = '';
         const newlyExhausted = [];
-        const MAX_ATTEMPTS = 3;
 
-        // Try up to 3 times across all available keys
-        for (let attempt = 0; attempt < MAX_ATTEMPTS && !summaryData; attempt++) {
-            // Try each Gemini key
-            for (const caller of geminiPool) {
-                if (isExhausted(caller.key)) continue;
-                try {
-                    const result = await callGemini(caller.key, prompt);
-                    // Validate all labs returned
-                    if (!result.labs || result.labs.length < files.length) {
-                        console.warn(`Attempt ${attempt+1}: got ${result.labs?.length}/${files.length} labs from ${caller.name}, retrying...`);
-                        batchError = `Only ${result.labs?.length}/${files.length} labs returned`;
-                        continue;
+        // Helper: try one API call, return result or null
+        async function tryCall(apiFn, key, name, id, p) {
+            try {
+                const result = await apiFn(key, p);
+                if (result && Array.isArray(result.labs)) {
+                    console.log(`${name}: got ${result.labs.length}/${files.length} labs`);
+                    // Keep best result (most labs)
+                    if (!bestResult || result.labs.length > bestResult.labs.length) {
+                        bestResult = result;
+                        usedApi = name;
                     }
-                    summaryData = result;
-                    usedApi = caller.name;
-                    break;
-                } catch (err) {
-                    batchError = err.message;
-                    if (isQuotaError(err.message)) {
-                        markExhausted(caller.key);
-                        newlyExhausted.push(caller.id);
-                    }
+                    return result.labs.length >= files.length; // true = complete
+                }
+            } catch (err) {
+                console.error(`${name} failed: ${err.message}`);
+                if (isQuotaError(err.message)) {
+                    if (key) markExhausted(key);
+                    if (id) newlyExhausted.push(id);
                 }
             }
-            if (summaryData) break;
+            return false;
+        }
 
-            // Groq fallback
-            if (groqCaller && !isExhausted(groqCaller.key)) {
-                try {
-                    const groqPrompt = buildPrompt(total, files.length, startNum, courseName,
-                        combinedContent.substring(0, 18000), isFirst);
-                    const result = await callGroq(groqCaller.key, groqPrompt);
-                    if (!result.labs || result.labs.length < files.length) {
-                        batchError = `Groq: only ${result.labs?.length}/${files.length} labs`;
-                        continue;
-                    }
-                    summaryData = result;
-                    usedApi = 'Groq';
-                    break;
-                } catch (err) {
-                    batchError = err.message;
-                    if (isQuotaError(err.message)) newlyExhausted.push('groq');
-                }
+        // Round 1: try each Gemini key once
+        for (const caller of geminiPool) {
+            const complete = await tryCall(callGemini, caller.key, caller.name, caller.id, prompt);
+            if (complete) break;
+        }
+
+        // Round 2: if still incomplete, retry with remaining keys
+        if (!bestResult || bestResult.labs.length < files.length) {
+            const remaining = geminiPool.filter(k => !isExhausted(k.key));
+            for (const caller of remaining) {
+                if (bestResult?.labs?.length >= files.length) break;
+                await tryCall(callGemini, caller.key, caller.name, caller.id, prompt);
             }
         }
 
-        // If still missing labs, use best partial result
-        if (!summaryData) {
-            // One final attempt accepting partial results
-            for (const caller of geminiPool) {
-                if (isExhausted(caller.key)) continue;
-                try {
-                    summaryData = await callGemini(caller.key, prompt);
-                    usedApi = caller.name;
-                    break;
-                } catch (err) {
-                    batchError = err.message;
-                    if (isQuotaError(err.message)) { markExhausted(caller.key); newlyExhausted.push(caller.id); }
-                }
-            }
+        // Round 3: Groq fallback if still missing labs
+        if (groqAvail && (!bestResult || bestResult.labs.length < files.length)) {
+            const groqPrompt = buildPrompt(total, files.length, startNum, courseName,
+                combinedContent.substring(0, 18000), isFirst);
+            await tryCall(callGroq, groqKey, 'Groq', 'groq', groqPrompt);
         }
 
-        if (!summaryData) return res.status(500).json({ error: `All APIs failed after ${MAX_ATTEMPTS} attempts: ${batchError}`, newlyExhausted });
-
-        // Extract usage metadata and remove from summaryData
-        const usage = summaryData.__usage || null;
-        delete summaryData.__usage;
-
-        // If API didn't return token count, estimate from prompt length (~4 chars per token)
-        if (usage && usage.totalTokens === 0) {
-            usage.totalTokens = Math.round(prompt.length / 4);
+        if (!bestResult) {
+            return res.status(500).json({ error: 'All APIs failed — check quota status', newlyExhausted });
         }
+
+        // Extract usage metadata
+        const usage = bestResult.__usage || null;
+        delete bestResult.__usage;
 
         const filename = `${courseName.replace(/[^a-z0-9]/gi, '_')}_Summary.docx`;
-        return res.status(200).json({ ok: true, filename, summary: summaryData, usedApi, newlyExhausted, usage });
+        return res.status(200).json({
+            ok: true, filename,
+            summary: bestResult,
+            usedApi, newlyExhausted,
+            labsReceived: bestResult.labs.length,
+            labsExpected: files.length,
+            usage
+        });
 
     } catch (err) {
         return res.status(500).json({ error: err.message });
@@ -232,7 +218,7 @@ function parseJsonSafe(raw) {
 
     const trimmed = raw.trim();
     if (trimmed.startsWith('An error') || trimmed.startsWith('A server') ||
-        trimmed.startsWith('Error') || trimmed.startsWith('Sorry')) {
+        trimmed.startsWith('Error:') || trimmed.startsWith('Sorry,')) {
         throw new Error(`Gemini quota exceeded: ${trimmed.substring(0, 100)}`);
     }
 
@@ -250,27 +236,11 @@ function parseJsonSafe(raw) {
         throw new Error(`AI returned non-JSON: "${cleaned.substring(0, 200)}"`);
     }
 
-    let parsed;
     try {
-        parsed = JSON.parse(cleaned.substring(start, end + 1));
+        return JSON.parse(cleaned.substring(start, end + 1));
     } catch (e) {
         throw new Error(`JSON parse failed: ${e.message}`);
     }
-
-    // Reject if labs contain placeholder text (AI hallucination)
-    if (parsed.labs && Array.isArray(parsed.labs)) {
-        const hasPlaceholder = parsed.labs.some(lab =>
-            (lab.title || '').includes('Exact Title Here') ||
-            (lab.objective || '').includes('sentences describing') ||
-            (lab.keyTopics || '').includes('sentences covering') ||
-            (lab.handsOnActivity || '').includes('sentences detailing')
-        );
-        if (hasPlaceholder) {
-            throw new Error('AI returned placeholder text instead of real content — retrying');
-        }
-    }
-
-    return parsed;
 }
 
 // ═══════════════════════════════════════════════
