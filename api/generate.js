@@ -113,37 +113,72 @@ export default async function handler(req, res) {
         let summaryData = null;
         let usedApi = '';
         let batchError = '';
-        const newlyExhausted = []; // keys exhausted during this call
+        const newlyExhausted = [];
+        const MAX_ATTEMPTS = 3;
 
-        // Try Gemini keys — all available ones
-        for (const caller of geminiPool) {
-            try {
-                summaryData = await callGemini(caller.key, prompt);
-                usedApi = caller.name;
-                break;
-            } catch (err) {
-                batchError = err.message;
-                if (isQuotaError(err.message)) {
-                    markExhausted(caller.key);
-                    newlyExhausted.push(caller.id);
+        // Try up to 3 times across all available keys
+        for (let attempt = 0; attempt < MAX_ATTEMPTS && !summaryData; attempt++) {
+            // Try each Gemini key
+            for (const caller of geminiPool) {
+                if (isExhausted(caller.key)) continue;
+                try {
+                    const result = await callGemini(caller.key, prompt);
+                    // Validate all labs returned
+                    if (!result.labs || result.labs.length < files.length) {
+                        console.warn(`Attempt ${attempt+1}: got ${result.labs?.length}/${files.length} labs from ${caller.name}, retrying...`);
+                        batchError = `Only ${result.labs?.length}/${files.length} labs returned`;
+                        continue;
+                    }
+                    summaryData = result;
+                    usedApi = caller.name;
+                    break;
+                } catch (err) {
+                    batchError = err.message;
+                    if (isQuotaError(err.message)) {
+                        markExhausted(caller.key);
+                        newlyExhausted.push(caller.id);
+                    }
+                }
+            }
+            if (summaryData) break;
+
+            // Groq fallback
+            if (groqCaller && !isExhausted(groqCaller.key)) {
+                try {
+                    const groqPrompt = buildPrompt(total, files.length, startNum, courseName,
+                        combinedContent.substring(0, 18000), isFirst);
+                    const result = await callGroq(groqCaller.key, groqPrompt);
+                    if (!result.labs || result.labs.length < files.length) {
+                        batchError = `Groq: only ${result.labs?.length}/${files.length} labs`;
+                        continue;
+                    }
+                    summaryData = result;
+                    usedApi = 'Groq';
+                    break;
+                } catch (err) {
+                    batchError = err.message;
+                    if (isQuotaError(err.message)) newlyExhausted.push('groq');
                 }
             }
         }
 
-        // Groq fallback
-        if (!summaryData && groqCaller) {
-            try {
-                const groqPrompt = buildPrompt(total, files.length, startNum, courseName,
-                    combinedContent.substring(0, 18000), isFirst);
-                summaryData = await callGroq(groqCaller.key, groqPrompt);
-                usedApi = 'Groq';
-            } catch (err) {
-                batchError = err.message;
-                if (isQuotaError(err.message)) newlyExhausted.push('groq');
+        // If still missing labs, use best partial result
+        if (!summaryData) {
+            // One final attempt accepting partial results
+            for (const caller of geminiPool) {
+                if (isExhausted(caller.key)) continue;
+                try {
+                    summaryData = await callGemini(caller.key, prompt);
+                    usedApi = caller.name;
+                    break;
+                } catch (err) {
+                    batchError = err.message;
+                    if (isQuotaError(err.message)) { markExhausted(caller.key); newlyExhausted.push(caller.id); }
+                }
             }
         }
 
-        if (!summaryData) return res.status(500).json({ error: `All APIs failed: ${batchError}`, newlyExhausted });
+        if (!summaryData) return res.status(500).json({ error: `All APIs failed after ${MAX_ATTEMPTS} attempts: ${batchError}`, newlyExhausted });
 
         // Extract usage metadata and remove from summaryData
         const usage = summaryData.__usage || null;
