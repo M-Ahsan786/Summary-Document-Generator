@@ -704,9 +704,12 @@ async function generate() {
                 }
 
                 const labs = parsed.summary?.labs || [];
-                if (labs.length < batches[b].length && attempt === 0) {
-                    txt.textContent = `Labs ${labStart}–${labEnd}: got ${labs.length}/${batches[b].length}, retrying...`;
-                    data = parsed; // save partial in case retry is worse
+                const expected = batches[b].length;
+
+                if (labs.length < expected && attempt === 0) {
+                    txt.textContent = `Labs ${labStart}–${labEnd}: got ${labs.length}/${expected}, retrying...`;
+                    // Save partial result
+                    if (!data || labs.length > (data.summary?.labs?.length || 0)) data = parsed;
                     continue;
                 }
 
