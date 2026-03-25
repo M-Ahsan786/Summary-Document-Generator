@@ -189,6 +189,64 @@ export default async function handler(req, res) {
             await tryCall(callGroq, groqKey, 'Groq', 'groq', groqPrompt);
         }
 
+        // Round 4: Targeted retry for any individual empty labs
+        // If some labs have empty fields, retry ONLY those specific labs one by one
+        if (bestResult && bestResult.labs) {
+            const emptyIndexes = bestResult.labs
+                .map((lab, i) => ({ lab, i }))
+                .filter(({ lab }) =>
+                    !lab.objective || lab.objective.trim().length < 10 ||
+                    !lab.keyTopics || lab.keyTopics.trim().length < 10 ||
+                    !lab.handsOnActivity || lab.handsOnActivity.trim().length < 10 ||
+                    !lab.realWorldApplication || lab.realWorldApplication.trim().length < 10
+                )
+                .map(({ i }) => i);
+
+            for (const emptyIdx of emptyIndexes) {
+                const emptyFile = filesWithTitles[emptyIdx];
+                if (!emptyFile) continue;
+
+                console.log(`Round 4: retrying empty lab at index ${emptyIdx}: ${emptyFile.labTitle}`);
+                const singleContent = `=== LAB FILE 1: ${emptyFile.labTitle} ===
+${emptyFile.content}`;
+                const singlePrompt = buildPrompt(1, 1, 1, courseName, singleContent, false);
+
+                // Try each available Gemini key
+                let filled = false;
+                for (const caller of geminiPool) {
+                    if (isExhausted(caller.key)) continue;
+                    try {
+                        const result = await callGemini(caller.key, singlePrompt);
+                        if (result && Array.isArray(result.labs) && result.labs[0]) {
+                            const filledLab = result.labs[0];
+                            if (filledLab.objective && filledLab.objective.trim().length > 10) {
+                                bestResult.labs[emptyIdx] = filledLab;
+                                console.log(`Round 4: successfully filled lab ${emptyIdx}`);
+                                filled = true;
+                                break;
+                            }
+                        }
+                    } catch (err) {
+                        if (isQuotaError(err.message)) markExhausted(caller.key);
+                    }
+                }
+
+                // Groq fallback for this single empty lab
+                if (!filled && groqAvail && !isExhausted(groqKey)) {
+                    try {
+                        const result = await callGroq(groqKey, singlePrompt);
+                        if (result && Array.isArray(result.labs) && result.labs[0]) {
+                            const filledLab = result.labs[0];
+                            if (filledLab.objective && filledLab.objective.trim().length > 10) {
+                                bestResult.labs[emptyIdx] = filledLab;
+                                console.log(`Round 4 Groq: successfully filled lab ${emptyIdx}`);
+                            }
+                        }
+                    } catch (err) { /* ignore */ }
+                }
+            }
+        }
+
         if (!bestResult) {
             return res.status(500).json({ error: 'All APIs failed — check quota status', newlyExhausted });
         }
