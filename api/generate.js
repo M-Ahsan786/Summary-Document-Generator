@@ -100,7 +100,27 @@ export default async function handler(req, res) {
             geminiPool.push({ name: 'Gemini-3', key: geminiKey3, id: '3' });
         const groqAvail = groqKey && !exhaustedKeys.includes('groq') && !isExhausted(groqKey);
 
-        const filesWithTitles = files.map((f, i) => ({
+        // Sort files by natural order (handles Lab 1.1, 1.2, 1.10 correctly)
+        const sortedFiles = [...files].sort((a, b) => {
+            const re = /(\d+)/g;
+            const aParts = a.name.split(re);
+            const bParts = b.name.split(re);
+            for (let i = 0; i < Math.max(aParts.length, bParts.length); i++) {
+                const aSeg = aParts[i] || '';
+                const bSeg = bParts[i] || '';
+                const aNum = parseInt(aSeg, 10);
+                const bNum = parseInt(bSeg, 10);
+                if (!isNaN(aNum) && !isNaN(bNum)) {
+                    if (aNum !== bNum) return aNum - bNum;
+                } else {
+                    const cmp = aSeg.localeCompare(bSeg);
+                    if (cmp !== 0) return cmp;
+                }
+            }
+            return 0;
+        });
+
+        const filesWithTitles = sortedFiles.map((f, i) => ({
             ...f,
             labTitle: extractLabTitle(f.content, f.name, startNum + i)
         }));
