@@ -193,6 +193,33 @@ export default async function handler(req, res) {
             return res.status(500).json({ error: 'All APIs failed — check quota status', newlyExhausted });
         }
 
+        // ── POST-PROCESS: Force correct titles and order from actual file headings ──
+        // This fixes AI hallucinating wrong lab numbers/titles or reordering labs
+        const correctTitles = filesWithTitles.map(f => f.labTitle);
+        const aiLabs = bestResult.labs || [];
+
+        // Build a map of AI labs by their position (index) for reordering
+        // Also try to match by title similarity as fallback
+        const fixedLabs = correctTitles.map((correctTitle, idx) => {
+            // First try: use AI lab at same index position
+            let aiLab = aiLabs[idx];
+
+            // If AI lab at this index has wrong title, try to find matching AI lab by title
+            if (!aiLab || !aiLab.title) {
+                aiLab = aiLabs.find(l => l.title && l.title.trim() === correctTitle) || aiLabs[idx] || {};
+            }
+
+            return {
+                title: correctTitle, // Always use the correct title from the file
+                objective: aiLab.objective || '',
+                keyTopics: aiLab.keyTopics || '',
+                handsOnActivity: aiLab.handsOnActivity || '',
+                realWorldApplication: aiLab.realWorldApplication || ''
+            };
+        });
+
+        bestResult.labs = fixedLabs;
+
         // Extract usage metadata
         const usage = bestResult.__usage || null;
         delete bestResult.__usage;
