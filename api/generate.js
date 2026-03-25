@@ -131,18 +131,31 @@ export default async function handler(req, res) {
         let usedApi = '';
         const newlyExhausted = [];
 
-        // Helper: try one API call, return result or null
+        // Count labs that have all fields properly filled (not empty/placeholder)
+        function countCompleteLabs(labs) {
+            return labs.filter(lab =>
+                lab.objective && lab.objective.trim().length > 10 &&
+                lab.keyTopics && lab.keyTopics.trim().length > 10 &&
+                lab.handsOnActivity && lab.handsOnActivity.trim().length > 10 &&
+                lab.realWorldApplication && lab.realWorldApplication.trim().length > 10
+            ).length;
+        }
+
+        // Helper: try one API call, return true if complete
         async function tryCall(apiFn, key, name, id, p) {
             try {
                 const result = await apiFn(key, p);
                 if (result && Array.isArray(result.labs)) {
-                    console.log(`${name}: got ${result.labs.length}/${files.length} labs`);
-                    // Keep best result (most labs)
-                    if (!bestResult || result.labs.length > bestResult.labs.length) {
+                    const completeLabs = countCompleteLabs(result.labs);
+                    console.log(`${name}: got ${result.labs.length} labs, ${completeLabs} complete / ${files.length} expected`);
+                    // Keep best result — most complete labs wins
+                    const prevComplete = bestResult ? countCompleteLabs(bestResult.labs) : 0;
+                    if (!bestResult || completeLabs > prevComplete ||
+                        (completeLabs === prevComplete && result.labs.length > bestResult.labs.length)) {
                         bestResult = result;
                         usedApi = name;
                     }
-                    return result.labs.length >= files.length; // true = complete
+                    return result.labs.length >= files.length && completeLabs >= files.length;
                 }
             } catch (err) {
                 console.error(`${name} failed: ${err.message}`);
@@ -426,23 +439,32 @@ function buildPrompt(totalFiles, batchSize, startNum, courseName, content, isFir
         ? `First, write a 3-5 sentence "courseOverview" summarizing the entire "${courseName}" course (${totalFiles} labs total).`
         : `For "courseOverview" write an empty string "" since this is not the first batch.`;
 
+    // Build explicit ordered list of expected lab titles from the content headers
+    const labHeaders = [];
+    const headerRe = /=== LAB FILE \d+: (.+?) ===/g;
+    let hm;
+    while ((hm = headerRe.exec(content)) !== null) {
+        labHeaders.push(hm[1].trim());
+    }
+    const orderedList = labHeaders.map((t, i) => `  ${i + 1}. "${t}"`).join('\n');
+
     return `You are generating lab summaries for the "${courseName}" course.
-This batch contains labs ${startNum} to ${startNum + batchSize - 1} (out of ${totalFiles} total labs).
+This batch contains ${batchSize} lab files (labs ${startNum} to ${startNum + batchSize - 1} out of ${totalFiles} total).
 
 ${overview}
 
-For EACH lab file in this batch, generate exactly one summary entry.
-CRITICAL RULES:
-- The "labs" array MUST contain EXACTLY ${batchSize} entries — one per LAB FILE below
-- Use the EXACT lab title from each === LAB FILE: [title] === header as the "title" field
-- Keep full title including "Lab 1.1:", "Lab 2.3:" prefix exactly as written
-- Maintain the same order as the files appear below
-- Do NOT skip, combine, or omit any lab — all ${batchSize} must be present
-- Fill every field with REAL content from the lab file — do NOT use placeholder text
+CRITICAL RULES — READ CAREFULLY, VIOLATIONS ARE NOT ACCEPTABLE:
+1. The "labs" array MUST contain EXACTLY ${batchSize} entries — one per LAB FILE below. No more, no less.
+2. Process labs IN THIS EXACT ORDER:
+${orderedList}
+3. Use the EXACT lab title from each === LAB FILE: [title] === header as the "title" field. Do NOT invent or change titles.
+4. Every field (objective, keyTopics, handsOnActivity, realWorldApplication) MUST be filled with REAL content extracted from that lab's file. NEVER leave any field blank, empty, or as a placeholder.
+5. Do NOT skip, merge, reorder, or omit any lab.
+6. Do NOT copy content from one lab into another lab's fields.
 
-Respond with ONLY valid JSON (no markdown fences, no extra text):
+Respond with ONLY valid JSON (no markdown fences, no extra text before or after):
 {
-  "courseOverview": "3-5 sentence course summary here or empty string if not first batch.",
+  "courseOverview": "3-5 sentence course summary or empty string if not first batch.",
   "labs": [
     {
       "title": "Lab 1.1: Deploying Virtual Machines in IaaS",
