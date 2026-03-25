@@ -571,6 +571,26 @@ let uploadedFiles = [];   // [{name, content}]
 let generatedDocx = null; // base64
 let generatedFilename = '';
 
+// ── Natural sort helper (handles "Lab 1.2" < "Lab 1.10" correctly) ──
+function naturalSort(a, b) {
+    const re = /(\d+)/g;
+    const aParts = a.name.split(re);
+    const bParts = b.name.split(re);
+    for (let i = 0; i < Math.max(aParts.length, bParts.length); i++) {
+        const aSeg = aParts[i] || '';
+        const bSeg = bParts[i] || '';
+        const aNum = parseInt(aSeg, 10);
+        const bNum = parseInt(bSeg, 10);
+        if (!isNaN(aNum) && !isNaN(bNum)) {
+            if (aNum !== bNum) return aNum - bNum;
+        } else {
+            const cmp = aSeg.localeCompare(bSeg);
+            if (cmp !== 0) return cmp;
+        }
+    }
+    return 0;
+}
+
 // ── File Handling ──
 function handleFiles(e) {
     const files = Array.from(e.target.files);
@@ -579,18 +599,31 @@ function handleFiles(e) {
     // Always reset array on new selection — prevents old files mixing with new
     uploadedFiles = [];
 
-    const reads = files.map(f => new Promise(res => {
-        const r = new FileReader();
-        r.onload = ev => { uploadedFiles.push({ name: f.name, content: ev.target.result }); res(); };
-        r.readAsText(f);
-    }));
+    // Read files SEQUENTIALLY in sorted order to guarantee all files are read
+    // and preserve the correct order (fixes missing 8th file and random order bugs)
+    const sortedFiles = [...files].sort((a, b) => naturalSort({ name: a.name }, { name: b.name }));
 
-    Promise.all(reads).then(() => {
-        uploadedFiles.sort((a, b) => a.name.localeCompare(b.name));
-        renderChips();
-        document.getElementById('uploadZone').classList.add('loaded');
-        checkReady();
-    });
+    const readSequentially = (index) => {
+        if (index >= sortedFiles.length) {
+            renderChips();
+            document.getElementById('uploadZone').classList.add('loaded');
+            checkReady();
+            return;
+        }
+        const f = sortedFiles[index];
+        const r = new FileReader();
+        r.onload = ev => {
+            uploadedFiles.push({ name: f.name, content: ev.target.result });
+            readSequentially(index + 1);
+        };
+        r.onerror = () => {
+            console.error(`Failed to read file: ${f.name}`);
+            readSequentially(index + 1); // skip failed file, continue
+        };
+        r.readAsText(f);
+    };
+
+    readSequentially(0);
 }
 
 function renderChips() {
@@ -990,21 +1023,25 @@ function fmtHandleFiles(e) {
     const files = Array.from(e.target.files);
     if (!files.length) return;
     fmtFiles = [];
-    const reads = files.map(f => new Promise(res => {
+    const sortedFiles = [...files].sort((a, b) => naturalSort({ name: a.name }, { name: b.name }));
+    const readSeq = (index) => {
+        if (index >= sortedFiles.length) {
+            fmtRenderChips();
+            document.getElementById('fmtUploadZone').classList.add('loaded');
+            document.getElementById('fmtBtn').disabled = false;
+            document.getElementById('fmtResult').style.display = 'none';
+            return;
+        }
+        const f = sortedFiles[index];
         const r = new FileReader();
         r.onload = ev => {
             fmtFiles.push({ name: f.name, base64: ev.target.result.split(',')[1] });
-            res();
+            readSeq(index + 1);
         };
+        r.onerror = () => readSeq(index + 1);
         r.readAsDataURL(f);
-    }));
-    Promise.all(reads).then(() => {
-        fmtFiles.sort((a, b) => a.name.localeCompare(b.name));
-        fmtRenderChips();
-        document.getElementById('fmtUploadZone').classList.add('loaded');
-        document.getElementById('fmtBtn').disabled = false;
-        document.getElementById('fmtResult').style.display = 'none';
-    });
+    };
+    readSeq(0);
 }
 
 function fmtRenderChips() {
