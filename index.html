@@ -572,23 +572,23 @@ let generatedDocx = null; // base64
 let generatedFilename = '';
 
 // ── Natural sort helper (handles "Lab 1.2" < "Lab 1.10" correctly) ──
+function extractLabNumber(name) {
+    // Remove timestamp prefix (10+ digit number at start followed by _)
+    const noTs = name.replace(/^\d{10,}_/, '');
+    // Match "Lab_X_Y" or "Lab X.Y" or "Lab_X.Y" pattern
+    const m = noTs.match(/lab[\s_](\d+)[\s_.](\d+)/i);
+    if (m) return [parseInt(m[1], 10), parseInt(m[2], 10)];
+    // Single number "Lab_X"
+    const m2 = noTs.match(/lab[\s_](\d+)/i);
+    if (m2) return [parseInt(m2[1], 10), 0];
+    return [99999, 99999];
+}
+
 function naturalSort(a, b) {
-    const re = /(\d+)/g;
-    const aParts = a.name.split(re);
-    const bParts = b.name.split(re);
-    for (let i = 0; i < Math.max(aParts.length, bParts.length); i++) {
-        const aSeg = aParts[i] || '';
-        const bSeg = bParts[i] || '';
-        const aNum = parseInt(aSeg, 10);
-        const bNum = parseInt(bSeg, 10);
-        if (!isNaN(aNum) && !isNaN(bNum)) {
-            if (aNum !== bNum) return aNum - bNum;
-        } else {
-            const cmp = aSeg.localeCompare(bSeg);
-            if (cmp !== 0) return cmp;
-        }
-    }
-    return 0;
+    const [aMaj, aMin] = extractLabNumber(a.name);
+    const [bMaj, bMin] = extractLabNumber(b.name);
+    if (aMaj !== bMaj) return aMaj - bMaj;
+    return aMin - bMin;
 }
 
 // ── File Handling ──
