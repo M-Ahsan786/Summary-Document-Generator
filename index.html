@@ -739,10 +739,22 @@ async function generate() {
                 const labs = parsed.summary?.labs || [];
                 const expected = batches[b].length;
 
-                if (labs.length < expected && attempt === 0) {
-                    txt.textContent = `Labs ${labStart}–${labEnd}: got ${labs.length}/${expected}, retrying...`;
-                    // Save partial result
-                    if (!data || labs.length > (data.summary?.labs?.length || 0)) data = parsed;
+                // Count labs with fully filled content (not empty/placeholder)
+                const completeLabs = labs.filter(lab =>
+                    lab.objective && lab.objective.trim().length > 10 &&
+                    lab.keyTopics && lab.keyTopics.trim().length > 10 &&
+                    lab.handsOnActivity && lab.handsOnActivity.trim().length > 10 &&
+                    lab.realWorldApplication && lab.realWorldApplication.trim().length > 10
+                ).length;
+
+                const isComplete = labs.length >= expected && completeLabs >= expected;
+
+                if (!isComplete && attempt === 0) {
+                    txt.textContent = `Labs ${labStart}–${labEnd}: got ${labs.length}/${expected} (${completeLabs} complete), retrying...`;
+                    // Save partial result — prefer more complete labs
+                    const prevComplete = (data?.summary?.labs || []).filter(lab =>
+                        lab.objective && lab.objective.trim().length > 10).length;
+                    if (!data || completeLabs > prevComplete) data = parsed;
                     continue;
                 }
 
