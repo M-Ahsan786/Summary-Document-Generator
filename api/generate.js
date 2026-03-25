@@ -100,24 +100,20 @@ export default async function handler(req, res) {
             geminiPool.push({ name: 'Gemini-3', key: geminiKey3, id: '3' });
         const groqAvail = groqKey && !exhaustedKeys.includes('groq') && !isExhausted(groqKey);
 
-        // Sort files by natural order (handles Lab 1.1, 1.2, 1.10 correctly)
+        // Sort files by Lab X.Y number, ignoring timestamp prefixes like "1774428143328_"
+        function extractLabNum(name) {
+            const noTs = name.replace(/^\d{10,}_/, '');
+            const m = noTs.match(/lab[\s_](\d+)[\s_.](\d+)/i);
+            if (m) return [parseInt(m[1], 10), parseInt(m[2], 10)];
+            const m2 = noTs.match(/lab[\s_](\d+)/i);
+            if (m2) return [parseInt(m2[1], 10), 0];
+            return [99999, 99999];
+        }
         const sortedFiles = [...files].sort((a, b) => {
-            const re = /(\d+)/g;
-            const aParts = a.name.split(re);
-            const bParts = b.name.split(re);
-            for (let i = 0; i < Math.max(aParts.length, bParts.length); i++) {
-                const aSeg = aParts[i] || '';
-                const bSeg = bParts[i] || '';
-                const aNum = parseInt(aSeg, 10);
-                const bNum = parseInt(bSeg, 10);
-                if (!isNaN(aNum) && !isNaN(bNum)) {
-                    if (aNum !== bNum) return aNum - bNum;
-                } else {
-                    const cmp = aSeg.localeCompare(bSeg);
-                    if (cmp !== 0) return cmp;
-                }
-            }
-            return 0;
+            const [aMaj, aMin] = extractLabNum(a.name);
+            const [bMaj, bMin] = extractLabNum(b.name);
+            if (aMaj !== bMaj) return aMaj - bMaj;
+            return aMin - bMin;
         });
 
         const filesWithTitles = sortedFiles.map((f, i) => ({
@@ -217,9 +213,10 @@ function extractLabTitle(content, filename, fallbackNum) {
         }
     }
 
-    // Fallback to filename
+    // Fallback to filename — strip timestamp prefix first
     if (!title) {
-        title = filename.replace(/\.md$/i, '').replace(/[-_]/g, ' ').trim();
+        const noTs = filename.replace(/^\d{10,}_/, '');
+        title = noTs.replace(/\.md$/i, '').replace(/[-_]/g, ' ').trim();
     }
 
     // Ensure title starts with "Lab" word
