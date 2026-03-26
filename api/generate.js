@@ -207,9 +207,36 @@ export default async function handler(req, res) {
                 if (!emptyFile) continue;
 
                 console.log(`Round 4: retrying empty lab at index ${emptyIdx}: ${emptyFile.labTitle}`);
-                const singleContent = `=== LAB FILE 1: ${emptyFile.labTitle} ===
-${emptyFile.content}`;
-                const singlePrompt = buildPrompt(1, 1, 1, courseName, singleContent, false);
+
+                // Use a short, focused excerpt (first 6000 chars) to avoid timeout
+                const excerpt = emptyFile.content.substring(0, 6000);
+                const singlePrompt = `You are generating a lab summary for ONE lab only.
+
+Lab Title: "${emptyFile.labTitle}"
+
+Read the lab content below and fill in ALL 4 fields with real content from the lab.
+RULES:
+- "objective" must describe what students will accomplish (1-2 sentences)
+- "keyTopics" must list the main topics/technologies covered (comma-separated)
+- "handsOnActivity" must describe the step-by-step tasks students perform (2-3 sentences)
+- "realWorldApplication" must explain how IT professionals use these skills (1-2 sentences)
+- NEVER leave any field empty or use placeholder text
+
+Respond with ONLY this JSON (no markdown, no extra text):
+{
+  "labs": [
+    {
+      "title": "${emptyFile.labTitle}",
+      "objective": "...",
+      "keyTopics": "...",
+      "handsOnActivity": "...",
+      "realWorldApplication": "..."
+    }
+  ]
+}
+
+LAB CONTENT:
+${excerpt}`;
 
                 // Try each available Gemini key
                 let filled = false;
@@ -220,13 +247,14 @@ ${emptyFile.content}`;
                         if (result && Array.isArray(result.labs) && result.labs[0]) {
                             const filledLab = result.labs[0];
                             if (filledLab.objective && filledLab.objective.trim().length > 10) {
-                                bestResult.labs[emptyIdx] = filledLab;
-                                console.log(`Round 4: successfully filled lab ${emptyIdx}`);
+                                bestResult.labs[emptyIdx] = { ...filledLab, title: emptyFile.labTitle };
+                                console.log(`Round 4: successfully filled lab index ${emptyIdx}`);
                                 filled = true;
                                 break;
                             }
                         }
                     } catch (err) {
+                        console.error(`Round 4 Gemini error: ${err.message}`);
                         if (isQuotaError(err.message)) markExhausted(caller.key);
                     }
                 }
@@ -238,11 +266,16 @@ ${emptyFile.content}`;
                         if (result && Array.isArray(result.labs) && result.labs[0]) {
                             const filledLab = result.labs[0];
                             if (filledLab.objective && filledLab.objective.trim().length > 10) {
-                                bestResult.labs[emptyIdx] = filledLab;
-                                console.log(`Round 4 Groq: successfully filled lab ${emptyIdx}`);
+                                bestResult.labs[emptyIdx] = { ...filledLab, title: emptyFile.labTitle };
+                                console.log(`Round 4 Groq: successfully filled lab index ${emptyIdx}`);
+                                filled = true;
                             }
                         }
-                    } catch (err) { /* ignore */ }
+                    } catch (err) { console.error(`Round 4 Groq error: ${err.message}`); }
+                }
+
+                if (!filled) {
+                    console.error(`Round 4: FAILED to fill lab index ${emptyIdx} — ${emptyFile.labTitle}`);
                 }
             }
         }
