@@ -18,6 +18,14 @@ export const config = {
     }
 };
 
+const GEMINI_MODELS = [
+    'gemini-2.5-flash-preview-04-17',
+    'gemini-2.0-flash',
+    'gemini-2.0-flash-lite',
+    'gemini-1.5-flash',
+    'gemini-1.5-flash-latest',
+];
+
 // ═══════════════════════════════════════════════
 // API KEY MANAGER
 // Tries keys in order, marks exhausted keys, auto-rotates
@@ -403,7 +411,7 @@ async function callGemini(apiKey, prompt) {
         let res, rawBody;
         try {
             const controller = new AbortController();
-            const timer = setTimeout(() => controller.abort(), 20000); // 20s timeout per model
+            const timer = setTimeout(() => controller.abort(), 30000); // 30s timeout per model
             res = await fetch(url, {
                 method: 'POST',
                 signal: controller.signal,
