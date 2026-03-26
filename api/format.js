@@ -106,12 +106,15 @@ function parseStructure(paragraphs) {
 
     const isLabTitle = t => {
         const clean = stripBullet(t).trim();
-        // Matches: "Lab 1.1: ...", "Lab 1: ...", "Module 1.1: ...", "Module 2: ..."
-        // Also matches lines that START with "Lab" or "Module" followed by space/number
         return (
+            // "Lab 1.1: Title", "Module 2.3: Title"  — number + colon
             /^(lab|module)\s+[\d.]+\s*[:–\-]/i.test(clean) ||
+            // "Lab 1 Title", "Module 2 Something"    — number, no colon
             /^(lab|module)\s+[\d]+[^a-z]/i.test(clean) ||
-            /^(lab|module)\s+[\d.]+$/i.test(clean)
+            // "Lab 1.1"                               — number only, no colon
+            /^(lab|module)\s+[\d.]+$/i.test(clean) ||
+            // "Lab: Title", "Module: Title"           — colon, no number
+            /^(lab|module)\s*[:–\-]\s+\S/i.test(clean)
         );
     };
 
