@@ -1266,7 +1266,14 @@ function formatResetPKT(utcDate) {
 }
 
 function startCountdown() {
-    let wasExhausted = false;
+    // Track if any key was exhausted so we know when to show notification on reset
+    let hadExhaustedKeys = false;
+    let resetHandled = false;
+
+    function checkIfAnyExhausted() {
+        const usage = loadUsage();
+        return ['1','2','3','groq'].some(id => usage[`${id}_exhausted`] === true);
+    }
 
     function update() {
         const el = document.getElementById('quotaCountdown');
@@ -1281,18 +1288,33 @@ function startCountdown() {
             labelEl.textContent = `Next reset: ${formatResetPKT(nextReset)}`;
         }
 
+        // Update hadExhaustedKeys every tick
+        if (checkIfAnyExhausted()) hadExhaustedKeys = true;
+
         if (diff <= 0) {
-            // Reset just happened
+            // Reset just happened — clear all stored usage data
+            if (!resetHandled) {
+                resetHandled = true;
+                try { localStorage.removeItem(STORAGE_KEY); } catch(_) {}
+                renderUsageBars(); // refresh bars to show full quota
+
+                // Show notification only if user had exhausted keys
+                if (hadExhaustedKeys) {
+                    showQuotaNotification();
+                    hadExhaustedKeys = false;
+                }
+
+                // Reset the flag after a few seconds so next cycle works
+                setTimeout(() => { resetHandled = false; }, 65000);
+            }
+
             el.textContent = '🟢 Quota reset! APIs are now available';
             el.style.color = '#43D9AD';
             el.style.fontWeight = '700';
-            // Notify user if they were watching
-            if (wasExhausted || document.getElementById('section-quota').style.display !== 'none') {
-                showQuotaNotification();
-            }
-            wasExhausted = false;
             return;
         }
+
+        resetHandled = false; // allow next reset to be handled
 
         const h = Math.floor(diff / 3600000);
         const m = Math.floor((diff % 3600000) / 60000);
@@ -1300,24 +1322,28 @@ function startCountdown() {
         const pad = n => String(n).padStart(2, '0');
         const timeStr = `${pad(h)}h ${pad(m)}m ${pad(s)}s`;
 
-        if (h >= 20) {
-            // More than 20 hours — red
-            el.style.color = '#FF6584';
-            el.style.fontWeight = '600';
-            el.textContent = `🔴 Resets in: ${timeStr}`;
-            wasExhausted = true;
-        } else if (h < 2) {
-            // Less than 2 hours — orange
-            el.style.color = '#FFB86C';
-            el.style.fontWeight = '600';
-            el.textContent = `🟡 Resets in: ${timeStr}`;
-            wasExhausted = true;
+        // Only show timer if any key is actually exhausted
+        const anyExhausted = checkIfAnyExhausted();
+
+        if (anyExhausted) {
+            if (h < 1) {
+                el.style.color = '#43D9AD';
+                el.style.fontWeight = '700';
+                el.textContent = `🟡 Almost there! Resets in: ${timeStr}`;
+            } else if (h < 3) {
+                el.style.color = '#FFB86C';
+                el.style.fontWeight = '600';
+                el.textContent = `🟡 Resets in: ${timeStr}`;
+            } else {
+                el.style.color = '#FF6584';
+                el.style.fontWeight = '600';
+                el.textContent = `🔴 Resets in: ${timeStr}`;
+            }
         } else {
-            // Between 2-20 hours — neutral muted
-            el.style.color = '#a09aff';
+            // No keys exhausted — show green available status, no timer needed
+            el.style.color = '#43D9AD';
             el.style.fontWeight = '600';
-            el.textContent = `⏱ Resets in: ${timeStr}`;
-            wasExhausted = true;
+            el.textContent = `🟢 All APIs available`;
         }
     }
 
@@ -1377,7 +1403,11 @@ async function checkGeminiQuota(num) {
         if (data.ok) {
             const modelInfo = data.model ? ` via ${data.model}` : '';
             statusEl.innerHTML = `<span style="color:#43D9AD;">✅ Quota available — Active & working${modelInfo} (${data.ms}ms)</span>`;
-            // Mark as not exhausted in usage — keep existing tracked value
+            // Clear exhausted flag since API confirmed it's working
+            const usage = loadUsage();
+            delete usage[`${keyId}_exhausted`];
+            saveUsage(usage);
+            renderUsageBars();
         } else if (data.exhausted) {
             const nextReset = getNextResetUTC();
             const modelInfo = data.model ? ` [${data.model}]` : '';
@@ -1406,8 +1436,14 @@ async function checkGroqQuota() {
         }
         if (data.ok) {
             statusEl.innerHTML = `<span style="color:#43D9AD;">✅ Quota available — Active & working (${data.ms}ms)</span>`;
+            // Clear exhausted flag
+            const usage = loadUsage();
+            delete usage['groq_exhausted'];
+            saveUsage(usage);
+            renderUsageBars();
         } else if (data.exhausted) {
             statusEl.innerHTML = `<span style="color:#FF6584;">❌ Rate limited — wait ~1 minute and try again</span>`;
+            markKeyExhaustedInBar('groq');
         } else {
             statusEl.innerHTML = `<span style="color:#FFB86C;">⚠️ Error: ${escHtml(data.error || 'Unknown')}</span>`;
         }
