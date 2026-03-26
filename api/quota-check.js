@@ -1,7 +1,7 @@
 // api/quota-check.js
 
 const GEMINI_MODELS = [
-    'gemini-3-flash-preview',
+    'gemini-2.5-flash-preview-04-17',
     'gemini-2.0-flash',
     'gemini-2.0-flash-lite',
     'gemini-1.5-flash',
