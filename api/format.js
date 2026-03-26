@@ -104,8 +104,16 @@ function parseStructure(paragraphs) {
     const isDetailedLabsHeading = t =>
         /^detailed\s+lab\s+summar/i.test(stripBullet(t).trim());
 
-    const isLabTitle = t =>
-        /^lab\s+[\d.]+\s*[:–\-]/i.test(stripBullet(t).trim());
+    const isLabTitle = t => {
+        const clean = stripBullet(t).trim();
+        // Matches: "Lab 1.1: ...", "Lab 1: ...", "Module 1.1: ...", "Module 2: ..."
+        // Also matches lines that START with "Lab" or "Module" followed by space/number
+        return (
+            /^(lab|module)\s+[\d.]+\s*[:–\-]/i.test(clean) ||
+            /^(lab|module)\s+[\d]+[^a-z]/i.test(clean) ||
+            /^(lab|module)\s+[\d.]+$/i.test(clean)
+        );
+    };
 
     // Sub-heading detection — works with or without bullet, with or without bold
     const isObjective = t =>
