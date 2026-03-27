@@ -99,7 +99,7 @@ async function injectHeader(zip, logoBuffer) {
     await removeLogoRel(zip, relsPath, 'xtremelabs_logo_h.jpg');
 
     // Add fresh image relationship
-    const imgRId = await addRelToFile(zip, relsPath, '../media/xtremelabs_logo_h.jpg',
+    const imgRId = await addRelToFile(zip, relsPath, 'media/xtremelabs_logo_h.jpg',
         'http://schemas.openxmlformats.org/officeDocument/2006/relationships/image');
 
     // Get unique drawing ID
@@ -128,7 +128,7 @@ async function injectFooter(zip, logoBuffer) {
     await removeLogoRel(zip, relsPath, 'xtremelabs_logo_f.jpg');
 
     // Add fresh image relationship
-    const imgRId = await addRelToFile(zip, relsPath, '../media/xtremelabs_logo_f.jpg',
+    const imgRId = await addRelToFile(zip, relsPath, 'media/xtremelabs_logo_f.jpg',
         'http://schemas.openxmlformats.org/officeDocument/2006/relationships/image');
 
     // Get unique drawing ID
