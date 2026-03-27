@@ -1,7 +1,10 @@
 // api/format-other.js — Vercel Serverless Function
-// "Other Document" mode: preserves ALL original content exactly as-is.
-// Only patches in header logo, footer logo, and/or page border via XML surgery.
-// No content is extracted, parsed, or rebuilt — the raw XML is preserved.
+// "Other Document" mode: preserves ALL original content.
+// Only adds header logo, footer logo, page border via XML surgery.
+//
+// CRITICAL RULE: Image relationships for header/footer images MUST be in
+// headerN.xml.rels / footerN.xml.rels — NOT in document.xml.rels.
+// Word resolves images inside headers/footers from the header/footer's OWN .rels file.
 
 import JSZip from 'jszip';
 
@@ -29,7 +32,7 @@ export default async function handler(req, res) {
         };
 
         const inputBuffer = Buffer.from(docxBase64, 'base64');
-        const outputBuffer = await applyOtherDocFormatting(inputBuffer, opts);
+        const outputBuffer = await applyFormatting(inputBuffer, opts);
         const outputBase64 = outputBuffer.toString('base64');
         const baseName = (filename || 'document').replace(/\.docx$/i, '');
 
@@ -37,366 +40,307 @@ export default async function handler(req, res) {
             ok: true,
             docx: outputBase64,
             filename: `${baseName}_Formatted.docx`,
-            // Preview just reports what was applied
-            preview: {
-                headerLogo: opts.headerLogo,
-                footerLogo: opts.footerLogo,
-                pageBorder: opts.pageBorder,
-            }
+            preview: { headerLogo: opts.headerLogo, footerLogo: opts.footerLogo, pageBorder: opts.pageBorder }
         });
-
     } catch (err) {
         return res.status(500).json({ error: err.message });
     }
 }
 
 // ═══════════════════════════════════════════════════════
-// Core: patch the docx ZIP without touching body content
+// MAIN
 // ═══════════════════════════════════════════════════════
-async function applyOtherDocFormatting(buffer, opts) {
+async function applyFormatting(buffer, opts) {
     const zip = await JSZip.loadAsync(buffer);
     const logoBuffer = Buffer.from(LOGO_B64, 'base64');
 
-    // ── 1. Page Border ──
-    if (opts.pageBorder) {
-        await applyPageBorder(zip);
-    }
-
-    // ── 2. Header Logo ──
-    if (opts.headerLogo) {
-        await injectHeaderLogo(zip, logoBuffer);
-    }
-
-    // ── 3. Footer Logo ──
-    if (opts.footerLogo) {
-        await injectFooterLogo(zip, logoBuffer);
-    }
+    if (opts.pageBorder) await applyPageBorder(zip);
+    if (opts.headerLogo) await injectHeader(zip, logoBuffer);
+    if (opts.footerLogo) await injectFooter(zip, logoBuffer);
 
     return await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
 }
 
 // ─────────────────────────────────────────────────────
-// Apply triple dark-blue page border via sectPr XML
+// PAGE BORDER
 // ─────────────────────────────────────────────────────
 async function applyPageBorder(zip) {
-    let docXml = await zip.file('word/document.xml').async('string');
-
-    const borderXml = `<w:pgBorders w:offsetFrom="page">` +
+    let xml = await zip.file('word/document.xml').async('string');
+    xml = xml.replace(/<w:pgBorders[\s\S]*?<\/w:pgBorders>/g, '');
+    const border =
+        `<w:pgBorders w:offsetFrom="page">` +
         `<w:top w:val="triple" w:sz="24" w:space="1" w:color="1F3864"/>` +
         `<w:left w:val="triple" w:sz="24" w:space="1" w:color="1F3864"/>` +
         `<w:bottom w:val="triple" w:sz="24" w:space="1" w:color="1F3864"/>` +
         `<w:right w:val="triple" w:sz="24" w:space="1" w:color="1F3864"/>` +
         `</w:pgBorders>`;
-
-    // Remove any existing pgBorders first
-    docXml = docXml.replace(/<w:pgBorders[\s\S]*?<\/w:pgBorders>/g, '');
-
-    // Insert before </w:sectPr>
-    if (docXml.includes('</w:sectPr>')) {
-        docXml = docXml.replace(/<\/w:sectPr>/g, borderXml + '</w:sectPr>');
+    if (xml.includes('</w:sectPr>')) {
+        xml = xml.replace(/<\/w:sectPr>/g, border + '</w:sectPr>');
     } else {
-        // No sectPr — inject one at the end of the body
-        docXml = docXml.replace(/<\/w:body>/, `<w:sectPr>${borderXml}</w:sectPr></w:body>`);
+        xml = xml.replace(/<\/w:body>/, `<w:sectPr>${border}</w:sectPr></w:body>`);
     }
-
-    zip.file('word/document.xml', docXml);
+    zip.file('word/document.xml', xml);
 }
 
 // ─────────────────────────────────────────────────────
-// Inject XtremeLabs logo into document header
-// Creates header1.xml + relationships if they don't exist
+// HEADER LOGO
 // ─────────────────────────────────────────────────────
-async function injectHeaderLogo(zip, logoBuffer) {
-    // Add the image to media/
-    const imgName = 'xtremelabs_logo_h.jpg';
-    zip.file(`word/media/${imgName}`, logoBuffer);
-
-    // Ensure content type exists
+async function injectHeader(zip, logoBuffer) {
+    const imgFile = 'word/media/xtremelabs_logo_h.jpg';
+    zip.file(imgFile, logoBuffer);
     await ensureContentType(zip, 'jpg', 'image/jpeg');
 
-    // Determine which header files exist
-    const headerFiles = Object.keys(zip.files).filter(f => /^word\/header\d*\.xml$/.test(f));
+    const existingHeaders = Object.keys(zip.files).filter(f => /^word\/header\d*\.xml$/.test(f));
 
-    if (headerFiles.length === 0) {
-        // No headers — create header1.xml and wire it up
-        const rId = await addRelationship(zip, 'word/_rels/document.xml.rels', `media/${imgName}`, 'image');
-        const headerRId = 'rId_hdr1';
-        const headerXml = buildHeaderXml(rId);
-        zip.file('word/header1.xml', headerXml);
+    if (existingHeaders.length > 0) {
+        // PATCH existing headers
+        for (const hPath of existingHeaders) {
+            const relsPath = `word/_rels/${hPath.replace('word/', '')}.rels`;
 
-        // Create header1.xml.rels
-        zip.file('word/_rels/header1.xml.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>`);
+            // Get the rId that the header XML is already using for its image embed
+            let hXml = await zip.file(hPath).async('string');
+            const existingEmbedMatch = hXml.match(/r:embed="([^"]+)"/);
 
-        // Wire header ref in document.xml sectPr
-        await wireHeaderRef(zip, headerRId, 'word/header1.xml');
-
-        // Add document rel for the header file itself
-        await addFileRelationship(zip, 'word/_rels/document.xml.rels', 'header1.xml',
-            'http://schemas.openxmlformats.org/officeDocument/2006/relationships/header', headerRId);
-
-        // Add content type for header
+            let imgRId;
+            if (existingEmbedMatch) {
+                // Header already has an image ref — reuse that rId
+                imgRId = existingEmbedMatch[1];
+                // Ensure this rId points to our logo in the header's OWN .rels
+                await setRelInFile(zip, relsPath, imgRId,
+                    'http://schemas.openxmlformats.org/officeDocument/2006/relationships/image',
+                    '../media/xtremelabs_logo_h.jpg');
+                // The header XML already has the drawing — don't inject again
+            } else {
+                // Header has no image ref yet — add one
+                imgRId = await addRelToFile(zip, relsPath, '../media/xtremelabs_logo_h.jpg',
+                    'http://schemas.openxmlformats.org/officeDocument/2006/relationships/image');
+                hXml = ensureNs(hXml, 'w:hdr');
+                hXml = hXml.replace(/(<w:hdr[^>]*>)/, `$1${logoParaHeader(imgRId)}`);
+                zip.file(hPath, hXml);
+            }
+        }
+    } else {
+        // CREATE header1.xml from scratch
+        const imgRId = 'rId1';
+        // Image rel in header1.xml.rels
+        zip.file('word/_rels/header1.xml.rels',
+            relsDoc(`<Relationship Id="${imgRId}" ` +
+                `Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" ` +
+                `Target="../media/xtremelabs_logo_h.jpg"/>`));
+        zip.file('word/header1.xml', buildHeader(imgRId));
         await ensureOverride(zip, '/word/header1.xml',
             'application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml');
-    } else {
-        // Patch existing header(s)
-        for (const hPath of headerFiles) {
-            const relsPath = hPath.replace('word/', 'word/_rels/') + '.rels';
-            const imgRId = await addRelToFile(zip, relsPath, `../media/${imgName}`, 'image');
-            let hXml = await zip.file(hPath).async('string');
-            hXml = injectLogoIntoHeaderXml(hXml, imgRId, 'header');
-            zip.file(hPath, hXml);
-        }
+        await addRelToDocRels(zip, 'header1.xml',
+            'http://schemas.openxmlformats.org/officeDocument/2006/relationships/header',
+            'rId_hdr1');
+        await wireRef(zip, 'header', 'rId_hdr1');
     }
 }
 
 // ─────────────────────────────────────────────────────
-// Inject footer logo
+// FOOTER LOGO
 // ─────────────────────────────────────────────────────
-async function injectFooterLogo(zip, logoBuffer) {
-    const imgName = 'xtremelabs_logo_f.jpg';
-    zip.file(`word/media/${imgName}`, logoBuffer);
+async function injectFooter(zip, logoBuffer) {
+    const imgFile = 'word/media/xtremelabs_logo_f.jpg';
+    zip.file(imgFile, logoBuffer);
     await ensureContentType(zip, 'jpg', 'image/jpeg');
 
-    const footerFiles = Object.keys(zip.files).filter(f => /^word\/footer\d*\.xml$/.test(f));
+    const existingFooters = Object.keys(zip.files).filter(f => /^word\/footer\d*\.xml$/.test(f));
 
-    if (footerFiles.length === 0) {
-        const rId = await addRelationship(zip, 'word/_rels/document.xml.rels', `media/${imgName}`, 'image');
-        const footerRId = 'rId_ftr1';
-        const footerXml = buildFooterXml(rId);
-        zip.file('word/footer1.xml', footerXml);
-        zip.file('word/_rels/footer1.xml.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>`);
-        await wireFooterRef(zip, footerRId, 'word/footer1.xml');
-        await addFileRelationship(zip, 'word/_rels/document.xml.rels', 'footer1.xml',
-            'http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer', footerRId);
+    if (existingFooters.length > 0) {
+        for (const fPath of existingFooters) {
+            const relsPath = `word/_rels/${fPath.replace('word/', '')}.rels`;
+
+            let fXml = await zip.file(fPath).async('string');
+            const existingEmbedMatch = fXml.match(/r:embed="([^"]+)"/);
+
+            let imgRId;
+            if (existingEmbedMatch) {
+                imgRId = existingEmbedMatch[1];
+                await setRelInFile(zip, relsPath, imgRId,
+                    'http://schemas.openxmlformats.org/officeDocument/2006/relationships/image',
+                    '../media/xtremelabs_logo_f.jpg');
+                // Footer XML already has drawing — don't inject again
+            } else {
+                imgRId = await addRelToFile(zip, relsPath, '../media/xtremelabs_logo_f.jpg',
+                    'http://schemas.openxmlformats.org/officeDocument/2006/relationships/image');
+                fXml = ensureNs(fXml, 'w:ftr');
+                fXml = fXml.replace(/<\/w:ftr>/, `${logoParaFooter(imgRId)}</w:ftr>`);
+                zip.file(fPath, fXml);
+            }
+        }
+    } else {
+        const imgRId = 'rId1';
+        zip.file('word/_rels/footer1.xml.rels',
+            relsDoc(`<Relationship Id="${imgRId}" ` +
+                `Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" ` +
+                `Target="../media/xtremelabs_logo_f.jpg"/>`));
+        zip.file('word/footer1.xml', buildFooter(imgRId));
         await ensureOverride(zip, '/word/footer1.xml',
             'application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml');
-    } else {
-        for (const fPath of footerFiles) {
-            const relsPath = fPath.replace('word/', 'word/_rels/') + '.rels';
-            const imgRId = await addRelToFile(zip, relsPath, `../media/${imgName}`, 'image');
-            let fXml = await zip.file(fPath).async('string');
-            fXml = injectLogoIntoHeaderXml(fXml, imgRId, 'footer');
-            zip.file(fPath, fXml);
-        }
+        await addRelToDocRels(zip, 'footer1.xml',
+            'http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer',
+            'rId_ftr1');
+        await wireRef(zip, 'footer', 'rId_ftr1');
     }
 }
 
 // ─────────────────────────────────────────────────────
-// Helpers
+// XML builders
 // ─────────────────────────────────────────────────────
-
-function buildHeaderXml(imgRId) {
+function relsDoc(relXml) {
     return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
-    `<w:hdr xmlns:wpc="http://schemas.microsoft.com/office/word/2010/wordprocessingCanvas"` +
-    ` xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"` +
-    ` xmlns:o="urn:schemas-microsoft-com:office:office"` +
-    ` xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"` +
-    ` xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math"` +
-    ` xmlns:v="urn:schemas-microsoft-com:vml"` +
-    ` xmlns:wp14="http://schemas.microsoft.com/office/word/2010/wordprocessingDrawing"` +
-    ` xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"` +
-    ` xmlns:w10="urn:schemas-microsoft-com:office:word"` +
-    ` xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"` +
-    ` xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml"` +
-    ` xmlns:wpg="http://schemas.microsoft.com/office/word/2010/wordprocessingGroup"` +
-    ` xmlns:wpi="http://schemas.microsoft.com/office/word/2010/wordprocessingInk"` +
-    ` xmlns:wne="http://schemas.microsoft.com/office/word/2006/wordml"` +
-    ` xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape" mc:Ignorable="w14 wp14">` +
-    buildLogoParaXml(imgRId, 'header') +
-    `</w:hdr>`;
+        `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` +
+        relXml +
+        `</Relationships>`;
 }
 
-function buildFooterXml(imgRId) {
+function buildHeader(rId) {
     return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
-    `<w:ftr xmlns:wpc="http://schemas.microsoft.com/office/word/2010/wordprocessingCanvas"` +
-    ` xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"` +
-    ` xmlns:o="urn:schemas-microsoft-com:office:office"` +
-    ` xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"` +
-    ` xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math"` +
-    ` xmlns:v="urn:schemas-microsoft-com:vml"` +
-    ` xmlns:wp14="http://schemas.microsoft.com/office/word/2010/wordprocessingDrawing"` +
-    ` xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"` +
-    ` xmlns:w10="urn:schemas-microsoft-com:office:word"` +
-    ` xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"` +
-    ` xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml"` +
-    ` xmlns:wpg="http://schemas.microsoft.com/office/word/2010/wordprocessingGroup"` +
-    ` xmlns:wpi="http://schemas.microsoft.com/office/word/2010/wordprocessingInk"` +
-    ` xmlns:wne="http://schemas.microsoft.com/office/word/2006/wordml"` +
-    ` xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape" mc:Ignorable="w14 wp14">` +
-    buildLogoParaXml(imgRId, 'footer') +
-    `</w:ftr>`;
+        `<w:hdr xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"` +
+        ` xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"` +
+        ` xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"` +
+        ` xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"` +
+        ` xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">` +
+        logoParaHeader(rId) + `</w:hdr>`;
 }
 
-// Build an inline image paragraph for header/footer
-function buildLogoParaXml(rId, mode) {
-    // Header: right-aligned logo (tab to right). Footer: centered with "Powered By:"
-    const EMU_W = mode === 'header' ? 1270000 : 857250;  // ~140px / ~95px at 96dpi
-    const EMU_H = mode === 'header' ?  292100 : 190500;  // ~32px  / ~21px
+function buildFooter(rId) {
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+        `<w:ftr xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"` +
+        ` xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"` +
+        ` xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"` +
+        ` xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"` +
+        ` xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">` +
+        logoParaFooter(rId) + `</w:ftr>`;
+}
 
-    const imgXml = `<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">` +
-        `<a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">` +
-        `<pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">` +
-        `<pic:nvPicPr><pic:cNvPr id="1" name="logo"/><pic:cNvPicPr/></pic:nvPicPr>` +
-        `<pic:blipFill><a:blip r:embed="${rId}" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"/>` +
-        `<a:stretch><a:fillRect/></a:stretch></pic:blipFill>` +
-        `<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${EMU_W}" cy="${EMU_H}"/></a:xfrm>` +
-        `<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr>` +
-        `</pic:pic></a:graphicData></a:graphic>`;
+function logoParaHeader(rId) {
+    return `<w:p><w:pPr><w:jc w:val="right"/></w:pPr>` +
+        `<w:r>${imgDrawing(rId, 1270000, 292100)}</w:r></w:p>`;
+}
 
-    const drawingXml = `<w:drawing>` +
-        `<wp:inline distT="0" distB="0" distL="0" distR="0" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing">` +
-        `<wp:extent cx="${EMU_W}" cy="${EMU_H}"/>` +
+function logoParaFooter(rId) {
+    return `<w:p>` +
+        `<w:pPr><w:jc w:val="center"/>` +
+        `<w:pBdr><w:top w:val="single" w:sz="4" w:space="1" w:color="2E5FA3"/></w:pBdr>` +
+        `</w:pPr>` +
+        `<w:r><w:rPr><w:b/><w:color w:val="1F3864"/><w:sz w:val="20"/></w:rPr>` +
+        `<w:t xml:space="preserve">Powered By:  </w:t></w:r>` +
+        `<w:r>${imgDrawing(rId, 857250, 190500)}</w:r></w:p>`;
+}
+
+function imgDrawing(rId, cx, cy) {
+    return `<w:drawing>` +
+        `<wp:inline distT="0" distB="0" distL="0" distR="0">` +
+        `<wp:extent cx="${cx}" cy="${cy}"/>` +
         `<wp:effectExtent l="0" t="0" r="0" b="0"/>` +
-        `<wp:docPr id="1" name="logo"/>` +
-        `<wp:cNvGraphicFramePr/>` +
-        imgXml +
-        `</wp:inline></w:drawing>`;
-
-    if (mode === 'header') {
-        // Right-aligned via tab stop
-        return `<w:p>` +
-            `<w:pPr><w:jc w:val="right"/></w:pPr>` +
-            `<w:r>${drawingXml}</w:r>` +
-            `</w:p>`;
-    } else {
-        // Centered with label
-        return `<w:p>` +
-            `<w:pPr><w:jc w:val="center"/>` +
-            `<w:pBdr><w:top w:val="single" w:sz="4" w:space="1" w:color="2E5FA3"/></w:pBdr>` +
-            `</w:pPr>` +
-            `<w:r><w:rPr><w:b/><w:color w:val="1F3864"/><w:sz w:val="20"/></w:rPr>` +
-            `<w:t xml:space="preserve">Powered By:  </w:t></w:r>` +
-            `<w:r>${drawingXml}</w:r>` +
-            `</w:p>`;
-    }
+        `<wp:docPr id="1" name="logo"/><wp:cNvGraphicFramePr/>` +
+        `<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">` +
+        `<pic:pic><pic:nvPicPr><pic:cNvPr id="1" name="logo"/><pic:cNvPicPr/></pic:nvPicPr>` +
+        `<pic:blipFill><a:blip r:embed="${rId}"/>` +
+        `<a:stretch><a:fillRect/></a:stretch></pic:blipFill>` +
+        `<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm>` +
+        `<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr>` +
+        `</pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing>`;
 }
 
-// Inject a logo paragraph into an existing header/footer XML (prepend for header, append for footer)
-function injectLogoIntoHeaderXml(xml, rId, mode) {
-    const logoPara = buildLogoParaXml(rId, mode);
-    if (mode === 'header') {
-        // Prepend inside root element
-        return xml.replace(/(<w:hdr[^>]*>)/, `$1${logoPara}`);
-    } else {
-        // Append before closing root element
-        return xml.replace(/<\/w:ftr>/, `${logoPara}</w:ftr>`);
-    }
-}
-
-// Add a relationship to a .rels file (document.xml.rels level), returns rId
-async function addRelationship(zip, relsPath, target, type) {
-    const typeMap = {
-        image: 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/image',
-        header: 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/header',
-        footer: 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer',
+// Ensure required namespaces on root element
+function ensureNs(xml, tag) {
+    const ns = {
+        'xmlns:r':   'http://schemas.openxmlformats.org/officeDocument/2006/relationships',
+        'xmlns:wp':  'http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing',
+        'xmlns:a':   'http://schemas.openxmlformats.org/drawingml/2006/main',
+        'xmlns:pic': 'http://schemas.openxmlformats.org/drawingml/2006/picture',
     };
-    const fullType = typeMap[type] || type;
-    let relsXml = '';
-    if (zip.file(relsPath)) {
-        relsXml = await zip.file(relsPath).async('string');
-    } else {
-        relsXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>`;
-    }
-
-    // Check if relationship to this target already exists
-    const existingMatch = relsXml.match(new RegExp(`Target="${target.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"[^/]*/>`));
-    if (existingMatch) {
-        const idMatch = existingMatch[0].match(/Id="([^"]+)"/);
-        if (idMatch) return idMatch[1];
-    }
-
-    // Find next available rId number
-    const ids = [...relsXml.matchAll(/Id="rId(\d+)"/g)].map(m => parseInt(m[1]));
-    const nextId = ids.length ? Math.max(...ids) + 1 : 100;
-    const rId = `rId${nextId}`;
-
-    const newRel = `<Relationship Id="${rId}" Type="${fullType}" Target="${target}"/>`;
-    relsXml = relsXml.replace('</Relationships>', `${newRel}</Relationships>`);
-    zip.file(relsPath, relsXml);
-    return rId;
+    return xml.replace(new RegExp(`(<${tag}[^>]*)(>)`), (m, attrs, close) => {
+        for (const [k, v] of Object.entries(ns)) {
+            if (!attrs.includes(k)) attrs += ` ${k}="${v}"`;
+        }
+        return attrs + close;
+    });
 }
 
-// Add rel to a header/footer rels file (relative target)
+// ─────────────────────────────────────────────────────
+// Relationship helpers
+// ─────────────────────────────────────────────────────
+
+// Set (or add) a specific rId → target in a .rels file
+async function setRelInFile(zip, relsPath, rId, type, target) {
+    let xml = zip.file(relsPath)
+        ? await zip.file(relsPath).async('string')
+        : relsDoc('');
+
+    // Remove any existing entry with this rId
+    xml = xml.replace(new RegExp(`<Relationship[^>]*Id="${rId}"[^/]*/>`), '');
+
+    // Add the correct one
+    xml = xml.replace('</Relationships>',
+        `<Relationship Id="${rId}" Type="${type}" Target="${target}"/></Relationships>`);
+    zip.file(relsPath, xml);
+}
+
+// Add new rel (auto-generate rId), return rId
 async function addRelToFile(zip, relsPath, target, type) {
-    const typeMap = {
-        image: 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/image',
-    };
-    const fullType = typeMap[type] || type;
+    let xml = zip.file(relsPath)
+        ? await zip.file(relsPath).async('string')
+        : relsDoc('');
 
-    let relsXml = '';
-    if (zip.file(relsPath)) {
-        relsXml = await zip.file(relsPath).async('string');
-    } else {
-        relsXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>`;
+    // Reuse if target already present
+    const escaped = target.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const existing = xml.match(new RegExp(`<Relationship[^>]*Target="${escaped}"[^/]*/>`));
+    if (existing) {
+        const m = existing[0].match(/Id="([^"]+)"/);
+        if (m) return m[1];
     }
 
-    const escapedTarget = target.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const existingMatch = relsXml.match(new RegExp(`Target="${escapedTarget}"[^/]*/>`));
-    if (existingMatch) {
-        const idMatch = existingMatch[0].match(/Id="([^"]+)"/);
-        if (idMatch) return idMatch[1];
-    }
-
-    const ids = [...relsXml.matchAll(/Id="rId(\d+)"/g)].map(m => parseInt(m[1]));
-    const nextId = ids.length ? Math.max(...ids) + 1 : 10;
-    const rId = `rId${nextId}`;
-
-    const newRel = `<Relationship Id="${rId}" Type="${fullType}" Target="${target}"/>`;
-    relsXml = relsXml.replace('</Relationships>', `${newRel}</Relationships>`);
-    zip.file(relsPath, relsXml);
+    const ids = [...xml.matchAll(/Id="rId(\d+)"/g)].map(m => parseInt(m[1]));
+    const rId = `rId${ids.length ? Math.max(...ids) + 1 : 1}`;
+    xml = xml.replace('</Relationships>',
+        `<Relationship Id="${rId}" Type="${type}" Target="${target}"/></Relationships>`);
+    zip.file(relsPath, xml);
     return rId;
 }
 
-// Add a file-level relationship with a specific rId
-async function addFileRelationship(zip, relsPath, target, type, rId) {
-    let relsXml = zip.file(relsPath) ? await zip.file(relsPath).async('string') : `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>`;
-    if (relsXml.includes(`Id="${rId}"`)) return; // already there
-    const newRel = `<Relationship Id="${rId}" Type="${type}" Target="${target}"/>`;
-    relsXml = relsXml.replace('</Relationships>', `${newRel}</Relationships>`);
-    zip.file(relsPath, relsXml);
+// Add header/footer file rel to document.xml.rels
+async function addRelToDocRels(zip, target, type, rId) {
+    const path = 'word/_rels/document.xml.rels';
+    let xml = zip.file(path) ? await zip.file(path).async('string') : relsDoc('');
+    if (xml.includes(`Id="${rId}"`)) return;
+    xml = xml.replace('</Relationships>',
+        `<Relationship Id="${rId}" Type="${type}" Target="${target}"/></Relationships>`);
+    zip.file(path, xml);
 }
 
-// Wire a headerReference into sectPr of document.xml
-async function wireHeaderRef(zip, rId, filePath) {
-    let docXml = await zip.file('word/document.xml').async('string');
-    const ref = `<w:headerReference w:type="default" r:id="${rId}" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"/>`;
-    if (!docXml.includes(ref)) {
-        docXml = docXml.replace(/<\/w:sectPr>/, `${ref}</w:sectPr>`);
-        if (!docXml.includes('</w:sectPr>')) {
-            docXml = docXml.replace(/<\/w:body>/, `<w:sectPr>${ref}</w:sectPr></w:body>`);
-        }
+// Wire header/footerReference into document.xml sectPr
+async function wireRef(zip, kind, rId) {
+    let xml = await zip.file('word/document.xml').async('string');
+    const tag = kind === 'header' ? 'w:headerReference' : 'w:footerReference';
+    const ref = `<${tag} w:type="default" r:id="${rId}"/>`;
+    if (xml.includes(ref)) return;
+    if (xml.includes('</w:sectPr>')) {
+        xml = xml.replace(/<\/w:sectPr>/, `${ref}</w:sectPr>`);
+    } else {
+        xml = xml.replace(/<\/w:body>/, `<w:sectPr>${ref}</w:sectPr></w:body>`);
     }
-    zip.file('word/document.xml', docXml);
+    zip.file('word/document.xml', xml);
 }
 
-// Wire a footerReference into sectPr of document.xml
-async function wireFooterRef(zip, rId, filePath) {
-    let docXml = await zip.file('word/document.xml').async('string');
-    const ref = `<w:footerReference w:type="default" r:id="${rId}" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"/>`;
-    if (!docXml.includes(ref)) {
-        if (docXml.includes('</w:sectPr>')) {
-            docXml = docXml.replace(/<\/w:sectPr>/, `${ref}</w:sectPr>`);
-        } else {
-            docXml = docXml.replace(/<\/w:body>/, `<w:sectPr>${ref}</w:sectPr></w:body>`);
-        }
-    }
-    zip.file('word/document.xml', docXml);
-}
-
-// Ensure an image content type entry exists in [Content_Types].xml
-async function ensureContentType(zip, ext, contentType) {
-    let ctXml = await zip.file('[Content_Types].xml').async('string');
-    if (!ctXml.includes(`Extension="${ext}"`)) {
-        ctXml = ctXml.replace('</Types>', `<Default Extension="${ext}" ContentType="${contentType}"/></Types>`);
-        zip.file('[Content_Types].xml', ctXml);
+// ─────────────────────────────────────────────────────
+// Content type helpers
+// ─────────────────────────────────────────────────────
+async function ensureContentType(zip, ext, ct) {
+    let xml = await zip.file('[Content_Types].xml').async('string');
+    if (!xml.includes(`Extension="${ext}"`)) {
+        xml = xml.replace('</Types>', `<Default Extension="${ext}" ContentType="${ct}"/></Types>`);
+        zip.file('[Content_Types].xml', xml);
     }
 }
 
-// Ensure an Override entry exists in [Content_Types].xml
-async function ensureOverride(zip, partName, contentType) {
-    let ctXml = await zip.file('[Content_Types].xml').async('string');
-    if (!ctXml.includes(`PartName="${partName}"`)) {
-        ctXml = ctXml.replace('</Types>', `<Override PartName="${partName}" ContentType="${contentType}"/></Types>`);
-        zip.file('[Content_Types].xml', ctXml);
+async function ensureOverride(zip, part, ct) {
+    let xml = await zip.file('[Content_Types].xml').async('string');
+    if (!xml.includes(`PartName="${part}"`)) {
+        xml = xml.replace('</Types>', `<Override PartName="${part}" ContentType="${ct}"/></Types>`);
+        zip.file('[Content_Types].xml', xml);
     }
 }
