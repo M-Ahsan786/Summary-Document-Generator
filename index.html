@@ -407,15 +407,36 @@
         <!-- ===== FORMAT IMPLEMENTOR SECTION ===== -->
         <div id="section-format" style="display:none;">
             <div class="stag" style="margin-bottom:8px;">🎨&nbsp; Format Implementor</div>
-            <p style="color:var(--muted);font-size:13px;margin-bottom:22px;">Upload one or more existing summary <strong>.docx</strong> files — select formatting options — then apply.</p>
+            <p style="color:var(--muted);font-size:13px;margin-bottom:22px;">Upload one or more <strong>.docx</strong> files — select document type and formatting options — then apply.</p>
+
+            <!-- ── Document Type Dropdown ── -->
+            <div style="margin-bottom:22px;">
+                <div style="font-size:12px;font-weight:600;color:var(--muted);letter-spacing:0.05em;text-transform:uppercase;margin-bottom:10px;">Document Type</div>
+                <div style="position:relative;">
+                    <select id="fmtDocType" onchange="fmtOnDocTypeChange()"
+                        style="width:100%;box-sizing:border-box;appearance:none;-webkit-appearance:none;background:rgba(255,255,255,0.04);border:1px solid rgba(108,99,255,0.3);border-radius:12px;padding:12px 44px 12px 16px;font-size:14px;color:var(--text);outline:none;cursor:pointer;transition:border-color 0.2s;font-family:'DM Sans',sans-serif;font-weight:600;"
+                        onfocus="this.style.borderColor='rgba(108,99,255,0.7)'"
+                        onblur="this.style.borderColor='rgba(108,99,255,0.3)'">
+                        <option value="summary" style="background:#0f0f22;color:#E2E2F0;">📄 Summary Document</option>
+                        <option value="other" style="background:#0f0f22;color:#E2E2F0;">📁 Other Document</option>
+                    </select>
+                    <div style="pointer-events:none;position:absolute;right:14px;top:50%;transform:translateY(-50%);">
+                        <svg width="16" height="16" fill="none" stroke="#a09aff" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 9l6 6 6-6"/></svg>
+                    </div>
+                </div>
+                <!-- Helper text that changes per mode -->
+                <div id="fmtDocTypeHint" style="margin-top:8px;padding:10px 14px;border-radius:10px;background:rgba(108,99,255,0.07);border:1px solid rgba(108,99,255,0.18);font-size:12px;color:#a09aff;line-height:1.6;">
+                    <strong>Summary Document:</strong> Full 6-option formatting — header, footer, border, title style, section headings &amp; lab callout. Content is re-parsed and rebuilt with the selected styles.
+                </div>
+            </div>
 
             <!-- Upload zone -->
             <label class="upload-zone p-7" id="fmtUploadZone" style="margin-bottom:20px;cursor:pointer;">
                 <div style="width:52px;height:52px;border-radius:14px;background:rgba(255,101,132,0.12);display:flex;align-items:center;justify-content:center;margin-bottom:12px;">
                     <svg width="26" height="26" fill="none" stroke="#FF6584" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
                 </div>
-                <div style="font-weight:700;font-size:16px;margin-bottom:4px;">Upload Summary Documents</div>
-                <div style="color:var(--muted);font-size:13px;margin-bottom:16px;">Click to select one or more <strong>.docx</strong> files</div>
+                <div style="font-weight:700;font-size:16px;margin-bottom:4px;" id="fmtUploadTitle">Upload Documents</div>
+                <div style="color:var(--muted);font-size:13px;margin-bottom:16px;" id="fmtUploadSubtitle">Click to select one or more <strong>.docx</strong> files</div>
                 <input type="file" id="fmtFileInput" accept=".docx" multiple style="display:none;" onchange="fmtHandleFiles(event)">
                 <div style="background:linear-gradient(135deg,#FF6584,#ff8fa3);color:white;padding:9px 26px;border-radius:10px;font-size:14px;font-weight:600;box-shadow:0 4px 14px rgba(255,101,132,0.3);">Choose Files</div>
             </label>
@@ -426,8 +447,8 @@
                 <div id="fmtChipsContainer" style="display:flex;flex-wrap:wrap;gap:7px;"></div>
             </div>
 
-            <!-- Formatting Options -->
-            <div style="margin-bottom:22px;">
+            <!-- ═══ SUMMARY DOC: all 6 options ═══ -->
+            <div id="fmtOptsSummary" style="margin-bottom:22px;">
                 <div style="font-size:12px;font-weight:600;color:var(--muted);letter-spacing:0.05em;text-transform:uppercase;margin-bottom:12px;">Select Formatting Options</div>
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
 
@@ -503,6 +524,53 @@
                 <div style="display:flex;gap:10px;margin-top:12px;">
                     <button onclick="fmtSelectAll()" style="background:rgba(108,99,255,0.1);border:1px solid rgba(108,99,255,0.25);color:#a09aff;border-radius:8px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer;" onmouseover="this.style.background='rgba(108,99,255,0.2)'" onmouseout="this.style.background='rgba(108,99,255,0.1)'">Select All</button>
                     <button onclick="fmtSelectNone()" style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);color:var(--muted);border-radius:8px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer;" onmouseover="this.style.background='rgba(255,255,255,0.08)'" onmouseout="this.style.background='rgba(255,255,255,0.04)'">Clear All</button>
+                </div>
+            </div>
+
+            <!-- ═══ OTHER DOC: only 3 options (header, footer, border) ═══ -->
+            <div id="fmtOptsOther" style="display:none;margin-bottom:22px;">
+                <div style="font-size:12px;font-weight:600;color:var(--muted);letter-spacing:0.05em;text-transform:uppercase;margin-bottom:12px;">Select Formatting Options</div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+
+                    <label class="fmt-option" id="fopt2-headerLogo">
+                        <input type="checkbox" id="fopt2_headerLogo" onchange="fmtToggleOption2('headerLogo')">
+                        <div class="fmt-option-icon" style="background:rgba(108,99,255,0.12);">
+                            <svg width="16" height="16" fill="none" stroke="#a09aff" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="4" rx="1"/><path stroke-linecap="round" d="M7 5h4"/></svg>
+                        </div>
+                        <div>
+                            <div style="font-size:13px;font-weight:600;color:var(--text);">Header Logo</div>
+                            <div style="font-size:11px;color:var(--muted);">XtremeLabs logo top-right</div>
+                        </div>
+                    </label>
+
+                    <label class="fmt-option" id="fopt2-footerLogo">
+                        <input type="checkbox" id="fopt2_footerLogo" onchange="fmtToggleOption2('footerLogo')">
+                        <div class="fmt-option-icon" style="background:rgba(67,217,173,0.12);">
+                            <svg width="16" height="16" fill="none" stroke="#43D9AD" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="17" width="18" height="4" rx="1"/><path stroke-linecap="round" d="M7 19h4"/></svg>
+                        </div>
+                        <div>
+                            <div style="font-size:13px;font-weight:600;color:var(--text);">Footer Logo</div>
+                            <div style="font-size:11px;color:var(--muted);">Powered By + logo centered</div>
+                        </div>
+                    </label>
+
+                    <label class="fmt-option" id="fopt2-pageBorder" style="grid-column:1/-1;">
+                        <input type="checkbox" id="fopt2_pageBorder" onchange="fmtToggleOption2('pageBorder')">
+                        <div class="fmt-option-icon" style="background:rgba(255,101,132,0.12);">
+                            <svg width="16" height="16" fill="none" stroke="#FF6584" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="20" rx="2"/></svg>
+                        </div>
+                        <div>
+                            <div style="font-size:13px;font-weight:600;color:var(--text);">Page Border</div>
+                            <div style="font-size:11px;color:var(--muted);">Triple-line dark blue border — added to every page of your document</div>
+                        </div>
+                    </label>
+
+                </div>
+
+                <!-- Select All / None for Other -->
+                <div style="display:flex;gap:10px;margin-top:12px;">
+                    <button onclick="fmtSelectAll2()" style="background:rgba(108,99,255,0.1);border:1px solid rgba(108,99,255,0.25);color:#a09aff;border-radius:8px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer;" onmouseover="this.style.background='rgba(108,99,255,0.2)'" onmouseout="this.style.background='rgba(108,99,255,0.1)'">Select All</button>
+                    <button onclick="fmtSelectNone2()" style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);color:var(--muted);border-radius:8px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer;" onmouseover="this.style.background='rgba(255,255,255,0.08)'" onmouseout="this.style.background='rgba(255,255,255,0.04)'">Clear All</button>
                 </div>
             </div>
 
@@ -891,6 +959,7 @@ function resetAll() {
         document.getElementById('fmtPreview').innerHTML = '<p style="color:var(--muted);font-size:13px;">Select a file from the list to preview</p>';
         document.getElementById('fmtPreviewActions').innerHTML = '';
         fmtSelectNone();
+        fmtSelectNone2();
         const btn = document.getElementById('fmtBtn');
         btn.disabled = true;
         btn.innerHTML = '<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4-4m0 0l4-4m-4 4h12"/></svg> Apply Format';
@@ -997,38 +1066,80 @@ function switchTab(tab) {
 }
 
 // ── Format Options ──
-const FMT_OPTS = ['headerLogo','footerLogo','pageBorder','titleStyle','sectionHeadings','labCallout'];
+// ── Document Type helpers ──
+const FMT_OPTS  = ['headerLogo','footerLogo','pageBorder','titleStyle','sectionHeadings','labCallout'];
+const FMT_OPTS2 = ['headerLogo','footerLogo','pageBorder']; // Other Document — only 3
 
+function fmtGetDocType() {
+    return document.getElementById('fmtDocType').value; // 'summary' | 'other'
+}
+
+// Called when dropdown changes
+function fmtOnDocTypeChange() {
+    const isSummary = fmtGetDocType() === 'summary';
+    document.getElementById('fmtOptsSummary').style.display = isSummary ? 'block' : 'none';
+    document.getElementById('fmtOptsOther').style.display   = isSummary ? 'none'  : 'block';
+    const hint = document.getElementById('fmtDocTypeHint');
+    if (isSummary) {
+        hint.innerHTML = '<strong>Summary Document:</strong> Full 6-option formatting — header, footer, border, title style, section headings &amp; lab callout. Content is re-parsed and rebuilt with the selected styles.';
+    } else {
+        hint.innerHTML = '<strong>Other Document:</strong> Preserves the original content exactly as-is. Only adds header logo, footer logo and/or page border on top — no content changes.';
+    }
+}
+
+// Summary options
 function fmtToggleOption(key) {
     const cb = document.getElementById(`fopt_${key}`);
     const label = document.getElementById(`fopt-${key}`);
     if (cb.checked) label.classList.add('selected');
     else label.classList.remove('selected');
 }
-
 function fmtSelectAll() {
     FMT_OPTS.forEach(k => {
         document.getElementById(`fopt_${k}`).checked = true;
         document.getElementById(`fopt-${k}`).classList.add('selected');
     });
 }
-
 function fmtSelectNone() {
     FMT_OPTS.forEach(k => {
         document.getElementById(`fopt_${k}`).checked = false;
         document.getElementById(`fopt-${k}`).classList.remove('selected');
     });
 }
-
 function fmtGetOptions() {
     const opts = {};
     FMT_OPTS.forEach(k => { opts[k] = document.getElementById(`fopt_${k}`).checked; });
     return opts;
 }
 
+// Other Document options
+function fmtToggleOption2(key) {
+    const cb = document.getElementById(`fopt2_${key}`);
+    const label = document.getElementById(`fopt2-${key}`);
+    if (cb.checked) label.classList.add('selected');
+    else label.classList.remove('selected');
+}
+function fmtSelectAll2() {
+    FMT_OPTS2.forEach(k => {
+        document.getElementById(`fopt2_${k}`).checked = true;
+        document.getElementById(`fopt2-${k}`).classList.add('selected');
+    });
+}
+function fmtSelectNone2() {
+    FMT_OPTS2.forEach(k => {
+        document.getElementById(`fopt2_${k}`).checked = false;
+        document.getElementById(`fopt2-${k}`).classList.remove('selected');
+    });
+}
+function fmtGetOptions2() {
+    const opts = {};
+    FMT_OPTS2.forEach(k => { opts[k] = document.getElementById(`fopt2_${k}`).checked; });
+    return opts;
+}
+
 // ── Format Implementor — Multi-file ──
 let fmtFiles    = [];   // [{name, base64}]
-let fmtResults  = [];   // [{name, docx, filename, preview}]
+let fmtResults  = [];   // [{name, docx, filename, preview, isOther}]
 let fmtActiveIdx = -1;
 
 function fmtHandleFiles(e) {
@@ -1087,6 +1198,10 @@ function fmtRemoveFile(idx) {
 
 async function fmtStart() {
     if (!fmtFiles.length) return;
+    const docType = fmtGetDocType();
+    const isSummary = docType === 'summary';
+    const opts = isSummary ? fmtGetOptions() : fmtGetOptions2();
+
     const btn = document.getElementById('fmtBtn');
     btn.disabled = true;
     btn.innerHTML = '<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg> Processing...';
@@ -1098,7 +1213,9 @@ async function fmtStart() {
     bar.style.width = '0%';
     document.getElementById('fmtResult').style.display = 'none';
     fmtResults = [];
-    const opts = fmtGetOptions();
+
+    // Choose API endpoint based on document type
+    const apiEndpoint = isSummary ? '/api/format' : '/api/format-other';
 
     try {
         const total = fmtFiles.length;
@@ -1107,16 +1224,16 @@ async function fmtStart() {
             bar.style.width = `${Math.round((i / total) * 90)}%`;
             txt.textContent = `Formatting (${i + 1}/${total}): ${f.name}...`;
 
-            const res = await fetch('/api/format', {
+            const res = await fetch(apiEndpoint, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ docxBase64: f.base64, filename: f.name, options: opts })
             });
             const data = await res.json();
             if (!res.ok || !data.ok) {
-                fmtResults.push({ name: f.name, error: data.error || `Server error ${res.status}` });
+                fmtResults.push({ name: f.name, error: data.error || `Server error ${res.status}`, isOther: !isSummary });
             } else {
-                fmtResults.push({ name: f.name, docx: data.docx, filename: data.filename, preview: data.preview });
+                fmtResults.push({ name: f.name, docx: data.docx, filename: data.filename, preview: data.preview, isOther: !isSummary });
             }
             await new Promise(r => setTimeout(r, 200));
         }
@@ -1148,14 +1265,17 @@ function fmtRenderResults() {
         if (r.error) {
             return `<div style="padding:10px 12px;border-radius:10px;border:1px solid rgba(255,101,132,0.3);background:rgba(255,101,132,0.06);font-size:12px;">
                 <div style="font-weight:600;color:#FF6584;margin-bottom:3px;">${escHtml(r.name)}</div>
-                <div style="color:var(--muted);">Error: ${escHtml(r.error.substring(0,50))}</div>
+                <div style="color:var(--muted);">Error: ${escHtml(r.error.substring(0,60))}</div>
             </div>`;
         }
+        const badge = r.isOther
+            ? `<div style="font-size:10px;color:#FFB86C;">📁 Other Doc</div>`
+            : `<div style="font-size:11px;color:#43D9AD;">${r.preview?.labs?.length || 0} labs</div>`;
         return `<div id="fmtCard_${i}" onclick="fmtSelectResult(${i})" style="cursor:pointer;padding:10px 12px;border-radius:10px;border:1px solid rgba(67,217,173,0.2);background:rgba(67,217,173,0.05);transition:all 0.2s;display:flex;align-items:center;gap:8px;" onmouseover="if(fmtActiveIdx!==${i})this.style.borderColor='rgba(67,217,173,0.4)'" onmouseout="if(fmtActiveIdx!==${i})this.style.borderColor='rgba(67,217,173,0.2)'">
-            <div style="width:8px;height:8px;border-radius:50%;background:#43D9AD;flex-shrink:0;"></div>
+            <div style="width:8px;height:8px;border-radius:50%;background:${r.isOther ? '#FFB86C' : '#43D9AD'};flex-shrink:0;"></div>
             <div style="flex:1;min-width:0;">
                 <div style="font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escHtml(r.name)}</div>
-                <div style="font-size:11px;color:#43D9AD;">${r.preview?.labs?.length || 0} labs</div>
+                ${badge}
             </div>
             <svg width="12" height="12" fill="none" stroke="var(--muted)" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
         </div>`;
@@ -1193,6 +1313,23 @@ function fmtSelectResult(idx) {
         Download .docx
     </button>`;
 
+    // ── Preview for Other Document ──
+    if (r.isOther) {
+        const p = r.preview || {};
+        document.getElementById('fmtPreview').innerHTML = `
+            <div style="padding:14px;background:rgba(255,184,108,0.07);border:1px solid rgba(255,184,108,0.22);border-radius:10px;margin-bottom:12px;">
+                <div style="font-size:10px;font-weight:600;color:#FFB86C;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;">📁 Other Document — Applied Formatting</div>
+                <div style="display:flex;flex-direction:column;gap:5px;font-size:12px;color:var(--muted);">
+                    <div><span style="color:var(--text);font-weight:600;">Header Logo:</span> ${p.headerLogo ? '✅ Added' : '⏭ Skipped'}</div>
+                    <div><span style="color:var(--text);font-weight:600;">Footer Logo:</span> ${p.footerLogo ? '✅ Added' : '⏭ Skipped'}</div>
+                    <div><span style="color:var(--text);font-weight:600;">Page Border:</span> ${p.pageBorder ? '✅ Added' : '⏭ Skipped'}</div>
+                    <div style="margin-top:6px;padding-top:6px;border-top:1px solid rgba(255,255,255,0.06);color:#a09aff;">Original content preserved — no text was changed.</div>
+                </div>
+            </div>`;
+        return;
+    }
+
+    // ── Preview for Summary Document ──
     const p = r.preview;
     let html = `<div style="margin-bottom:12px;padding:10px 12px;background:rgba(108,99,255,0.07);border:1px solid rgba(108,99,255,0.18);border-radius:10px;">
         <div style="font-size:10px;font-weight:600;color:#a09aff;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px;">Course Title</div>
@@ -1212,10 +1349,10 @@ function fmtSelectResult(idx) {
         html += `<div style="font-size:11px;font-weight:600;color:var(--muted);margin-bottom:8px;">${countLabel}</div>`;
         html += p.labs.map(lab => {
             const sub = [
-                { label: 'Objective',     val: lab.objective },
-                { label: 'Key Topics',    val: lab.keyTopics },
-                { label: 'Hands-On',      val: lab.handsOnActivity },
-                { label: 'Real-World',    val: lab.realWorldApplication }
+                { label: 'Objective',  val: lab.objective },
+                { label: 'Key Topics', val: lab.keyTopics },
+                { label: 'Hands-On',   val: lab.handsOnActivity },
+                { label: 'Real-World', val: lab.realWorldApplication }
             ].filter(s => s.val);
             return `
             <div style="margin-bottom:8px;border:1px solid rgba(67,217,173,0.16);border-radius:9px;overflow:hidden;">
