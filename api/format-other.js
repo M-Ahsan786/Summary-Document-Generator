@@ -90,19 +90,15 @@ async function injectHeader(zip, logoBuffer) {
     zip.file(imgFile, logoBuffer);
     await ensureContentType(zip, 'jpg', 'image/jpeg');
 
-    // Find the single target header: the one wired as w:type="default" in document.xml
-    // If none found, fall back to first existing header, or create a new one
     const targetHeader = await findOrCreateDefaultHeader(zip, 'header');
-
     const relsPath = `word/_rels/${targetHeader.replace('word/', '')}.rels`;
+
+    // Strip any previously injected logo (clean slate — handles re-runs and old broken runs)
     let hXml = await zip.file(targetHeader).async('string');
+    hXml = stripLogoParagraphs(hXml);
+    await removeLogoRel(zip, relsPath, 'xtremelabs_logo_h.jpg');
 
-    // Skip if our logo was already injected (idempotency)
-    if (hXml.includes('xtremelabs_logo_h.jpg') || hXml.includes('xtremelabs_logo')) {
-        return;
-    }
-
-    // Add image relationship to THIS header's own .rels file
+    // Add fresh image relationship
     const imgRId = await addRelToFile(zip, relsPath, '../media/xtremelabs_logo_h.jpg',
         'http://schemas.openxmlformats.org/officeDocument/2006/relationships/image');
 
@@ -123,18 +119,15 @@ async function injectFooter(zip, logoBuffer) {
     zip.file(imgFile, logoBuffer);
     await ensureContentType(zip, 'jpg', 'image/jpeg');
 
-    // Find the single target footer: the one wired as w:type="default" in document.xml
     const targetFooter = await findOrCreateDefaultHeader(zip, 'footer');
-
     const relsPath = `word/_rels/${targetFooter.replace('word/', '')}.rels`;
+
+    // Strip any previously injected logo (clean slate)
     let fXml = await zip.file(targetFooter).async('string');
+    fXml = stripLogoParagraphs(fXml);
+    await removeLogoRel(zip, relsPath, 'xtremelabs_logo_f.jpg');
 
-    // Skip if our logo was already injected (idempotency)
-    if (fXml.includes('xtremelabs_logo_f.jpg') || fXml.includes('xtremelabs_logo')) {
-        return;
-    }
-
-    // Add image relationship to THIS footer's own .rels file
+    // Add fresh image relationship
     const imgRId = await addRelToFile(zip, relsPath, '../media/xtremelabs_logo_f.jpg',
         'http://schemas.openxmlformats.org/officeDocument/2006/relationships/image');
 
@@ -145,6 +138,22 @@ async function injectFooter(zip, logoBuffer) {
     fXml = ensureNs(fXml, 'w:ftr');
     fXml = fXml.replace(/<\/w:ftr>/, `${logoParaFooter(imgRId, drawingId)}</w:ftr>`);
     zip.file(targetFooter, fXml);
+}
+
+// Remove a logo rel entry from a .rels file by target filename
+async function removeLogoRel(zip, relsPath, logoFilename) {
+    if (!zip.file(relsPath)) return;
+    let xml = await zip.file(relsPath).async('string');
+    // Remove any Relationship whose Target ends with our logo filename
+    xml = xml.replace(new RegExp(`<Relationship[^>]*Target="[^"]*${logoFilename}"[^/]*/>`,'g'), '');
+    zip.file(relsPath, xml);
+}
+
+// Strip logo paragraphs previously injected by format-other
+// Looks for paragraphs containing a drawing with name containing "logo_"
+function stripLogoParagraphs(xml) {
+    // Remove any <w:p>...</w:p> that contains a logo drawing (identified by name="logo_")
+    return xml.replace(/<w:p>(?:(?!<w:p>).)*?name="logo_\d+"(?:(?!<\/w:p>).)*?<\/w:p>/gs, '');
 }
 
 // ─────────────────────────────────────────────────────
@@ -381,5 +390,3 @@ async function ensureOverride(zip, part, ct) {
         zip.file('[Content_Types].xml', xml);
     }
 }
-
-
