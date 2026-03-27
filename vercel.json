@@ -7,6 +7,7 @@
     "api/generate.js":   { "maxDuration": 60 },
     "api/build-docx.js": { "maxDuration": 30 },
     "api/quota-check.js":{ "maxDuration": 30 },
-    "api/format.js":     { "maxDuration": 30 }
+    "api/format.js":       { "maxDuration": 30 },
+    "api/format-other.js": { "maxDuration": 30 }
   }
 }
