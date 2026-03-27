@@ -418,7 +418,7 @@
                         onfocus="this.style.borderColor='rgba(108,99,255,0.7)'"
                         onblur="this.style.borderColor='rgba(108,99,255,0.3)'">
                         <option value="summary" style="background:#0f0f22;color:#E2E2F0;">📄 Summary Document</option>
-                        <option value="other" style="background:#0f0f22;color:#E2E2F0;">📁 Other Document</option>
+                        <option value="other" style="background:#0f0f22;color:#E2E2F0;">📝 Other Document (.docx)</option>
                     </select>
                     <div style="pointer-events:none;position:absolute;right:14px;top:50%;transform:translateY(-50%);">
                         <svg width="16" height="16" fill="none" stroke="#a09aff" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 9l6 6 6-6"/></svg>
@@ -432,10 +432,22 @@
 
             <!-- Upload zone -->
             <label class="upload-zone p-7" id="fmtUploadZone" style="margin-bottom:20px;cursor:pointer;">
-                <div style="width:52px;height:52px;border-radius:14px;background:rgba(255,101,132,0.12);display:flex;align-items:center;justify-content:center;margin-bottom:12px;">
+                <!-- Summary Document icon (default visible) -->
+                <div id="fmtIconSummary" style="width:52px;height:52px;border-radius:14px;background:rgba(255,101,132,0.12);display:flex;align-items:center;justify-content:center;margin-bottom:12px;">
                     <svg width="26" height="26" fill="none" stroke="#FF6584" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
                 </div>
-                <div style="font-weight:700;font-size:16px;margin-bottom:4px;" id="fmtUploadTitle">Upload Documents</div>
+                <!-- Other Document icon — Word .docx badge (hidden by default) -->
+                <div id="fmtIconOther" style="display:none;width:52px;height:52px;border-radius:14px;background:rgba(43,108,196,0.14);align-items:center;justify-content:center;margin-bottom:12px;position:relative;">
+                    <svg width="28" height="28" fill="none" viewBox="0 0 24 24">
+                        <path d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" fill="rgba(43,108,196,0.18)" stroke="#2B6CC4" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+                        <path d="M13 3v5.5A1.5 1.5 0 0014.5 10H19" stroke="#2B6CC4" stroke-width="1.4" stroke-linecap="round"/>
+                    </svg>
+                    <!-- "W" badge for Word -->
+                    <div style="position:absolute;bottom:-4px;right:-4px;width:18px;height:18px;border-radius:4px;background:#2B6CC4;display:flex;align-items:center;justify-content:center;">
+                        <span style="font-size:10px;font-weight:800;color:white;line-height:1;">W</span>
+                    </div>
+                </div>
+                <div style="font-weight:700;font-size:16px;margin-bottom:4px;" id="fmtUploadTitle">Upload Summary Documents</div>
                 <div style="color:var(--muted);font-size:13px;margin-bottom:16px;" id="fmtUploadSubtitle">Click to select one or more <strong>.docx</strong> files</div>
                 <input type="file" id="fmtFileInput" accept=".docx" multiple style="display:none;" onchange="fmtHandleFiles(event)">
                 <div style="background:linear-gradient(135deg,#FF6584,#ff8fa3);color:white;padding:9px 26px;border-radius:10px;font-size:14px;font-weight:600;box-shadow:0 4px 14px rgba(255,101,132,0.3);">Choose Files</div>
@@ -1077,14 +1089,41 @@ function fmtGetDocType() {
 // Called when dropdown changes
 function fmtOnDocTypeChange() {
     const isSummary = fmtGetDocType() === 'summary';
+
+    // Swap format option panels
     document.getElementById('fmtOptsSummary').style.display = isSummary ? 'block' : 'none';
     document.getElementById('fmtOptsOther').style.display   = isSummary ? 'none'  : 'block';
+
+    // Swap upload zone icons
+    document.getElementById('fmtIconSummary').style.display = isSummary ? 'flex' : 'none';
+    document.getElementById('fmtIconOther').style.display   = isSummary ? 'none' : 'flex';
+
+    // Swap upload zone text
+    document.getElementById('fmtUploadTitle').textContent =
+        isSummary ? 'Upload Summary Documents' : 'Upload Word Documents';
+    document.getElementById('fmtUploadSubtitle').innerHTML =
+        isSummary
+            ? 'Click to select one or more <strong>.docx</strong> summary files'
+            : 'Click to select one or more <strong>.docx</strong> Word files';
+
+    // Hint text
     const hint = document.getElementById('fmtDocTypeHint');
     if (isSummary) {
         hint.innerHTML = '<strong>Summary Document:</strong> Full 6-option formatting — header, footer, border, title style, section headings &amp; lab callout. Content is re-parsed and rebuilt with the selected styles.';
     } else {
-        hint.innerHTML = '<strong>Other Document:</strong> Preserves the original content exactly as-is. Only adds header logo, footer logo and/or page border on top — no content changes.';
+        hint.innerHTML = '<strong>Other Document (.docx):</strong> Preserves the original Word document content exactly as-is. Only adds header logo, footer logo and/or page border — no text or content changes.';
     }
+
+    // Reset uploaded files on type switch
+    fmtFiles = [];
+    fmtResults = [];
+    fmtActiveIdx = -1;
+    document.getElementById('fmtFileInput').value = '';
+    document.getElementById('fmtChipsWrap').style.display = 'none';
+    document.getElementById('fmtChipsContainer').innerHTML = '';
+    document.getElementById('fmtUploadZone').classList.remove('loaded');
+    document.getElementById('fmtResult').style.display = 'none';
+    document.getElementById('fmtBtn').disabled = true;
 }
 
 // Summary options
@@ -1269,7 +1308,7 @@ function fmtRenderResults() {
             </div>`;
         }
         const badge = r.isOther
-            ? `<div style="font-size:10px;color:#FFB86C;">📁 Other Doc</div>`
+            ? `<div style="font-size:10px;color:#2B6CC4;font-weight:700;">📝 Word Doc</div>`
             : `<div style="font-size:11px;color:#43D9AD;">${r.preview?.labs?.length || 0} labs</div>`;
         return `<div id="fmtCard_${i}" onclick="fmtSelectResult(${i})" style="cursor:pointer;padding:10px 12px;border-radius:10px;border:1px solid rgba(67,217,173,0.2);background:rgba(67,217,173,0.05);transition:all 0.2s;display:flex;align-items:center;gap:8px;" onmouseover="if(fmtActiveIdx!==${i})this.style.borderColor='rgba(67,217,173,0.4)'" onmouseout="if(fmtActiveIdx!==${i})this.style.borderColor='rgba(67,217,173,0.2)'">
             <div style="width:8px;height:8px;border-radius:50%;background:${r.isOther ? '#FFB86C' : '#43D9AD'};flex-shrink:0;"></div>
@@ -1318,7 +1357,7 @@ function fmtSelectResult(idx) {
         const p = r.preview || {};
         document.getElementById('fmtPreview').innerHTML = `
             <div style="padding:14px;background:rgba(255,184,108,0.07);border:1px solid rgba(255,184,108,0.22);border-radius:10px;margin-bottom:12px;">
-                <div style="font-size:10px;font-weight:600;color:#FFB86C;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;">📁 Other Document — Applied Formatting</div>
+                <div style="font-size:10px;font-weight:600;color:#2B6CC4;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;">📝 Word Document — Applied Formatting</div>
                 <div style="display:flex;flex-direction:column;gap:5px;font-size:12px;color:var(--muted);">
                     <div><span style="color:var(--text);font-weight:600;">Header Logo:</span> ${p.headerLogo ? '✅ Added' : '⏭ Skipped'}</div>
                     <div><span style="color:var(--text);font-weight:600;">Footer Logo:</span> ${p.footerLogo ? '✅ Added' : '⏭ Skipped'}</div>
