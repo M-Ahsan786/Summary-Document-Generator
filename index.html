@@ -1192,6 +1192,9 @@ function fmtHandleFiles(e) {
             document.getElementById('fmtUploadZone').classList.add('loaded');
             document.getElementById('fmtBtn').disabled = false;
             document.getElementById('fmtResult').style.display = 'none';
+            // Auto-select all options based on current doc type
+            if (fmtGetDocType() === 'summary') fmtSelectAll();
+            else fmtSelectAll2();
             return;
         }
         const f = sortedFiles[index];
