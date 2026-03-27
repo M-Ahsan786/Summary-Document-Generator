@@ -93,31 +93,20 @@ async function injectHeader(zip, logoBuffer) {
     const existingHeaders = Object.keys(zip.files).filter(f => /^word\/header\d*\.xml$/.test(f));
 
     if (existingHeaders.length > 0) {
-        // PATCH existing headers
+        // PATCH existing headers — always inject logo paragraph
         for (const hPath of existingHeaders) {
             const relsPath = `word/_rels/${hPath.replace('word/', '')}.rels`;
 
-            // Get the rId that the header XML is already using for its image embed
             let hXml = await zip.file(hPath).async('string');
-            const existingEmbedMatch = hXml.match(/r:embed="([^"]+)"/);
 
-            let imgRId;
-            if (existingEmbedMatch) {
-                // Header already has an image ref — reuse that rId
-                imgRId = existingEmbedMatch[1];
-                // Ensure this rId points to our logo in the header's OWN .rels
-                await setRelInFile(zip, relsPath, imgRId,
-                    'http://schemas.openxmlformats.org/officeDocument/2006/relationships/image',
-                    '../media/xtremelabs_logo_h.jpg');
-                // The header XML already has the drawing — don't inject again
-            } else {
-                // Header has no image ref yet — add one
-                imgRId = await addRelToFile(zip, relsPath, '../media/xtremelabs_logo_h.jpg',
-                    'http://schemas.openxmlformats.org/officeDocument/2006/relationships/image');
-                hXml = ensureNs(hXml, 'w:hdr');
-                hXml = hXml.replace(/(<w:hdr[^>]*>)/, `$1${logoParaHeader(imgRId)}`);
-                zip.file(hPath, hXml);
-            }
+            // Always add a new rel for our logo image (addRelToFile reuses if target already present)
+            const imgRId = await addRelToFile(zip, relsPath, '../media/xtremelabs_logo_h.jpg',
+                'http://schemas.openxmlformats.org/officeDocument/2006/relationships/image');
+
+            // Always inject the logo paragraph at the top of the header
+            hXml = ensureNs(hXml, 'w:hdr');
+            hXml = hXml.replace(/(<w:hdr[^>]*>)/, `$1${logoParaHeader(imgRId)}`);
+            zip.file(hPath, hXml);
         }
     } else {
         // CREATE header1.xml from scratch
@@ -148,26 +137,20 @@ async function injectFooter(zip, logoBuffer) {
     const existingFooters = Object.keys(zip.files).filter(f => /^word\/footer\d*\.xml$/.test(f));
 
     if (existingFooters.length > 0) {
+        // PATCH existing footers — always inject logo paragraph
         for (const fPath of existingFooters) {
             const relsPath = `word/_rels/${fPath.replace('word/', '')}.rels`;
 
             let fXml = await zip.file(fPath).async('string');
-            const existingEmbedMatch = fXml.match(/r:embed="([^"]+)"/);
 
-            let imgRId;
-            if (existingEmbedMatch) {
-                imgRId = existingEmbedMatch[1];
-                await setRelInFile(zip, relsPath, imgRId,
-                    'http://schemas.openxmlformats.org/officeDocument/2006/relationships/image',
-                    '../media/xtremelabs_logo_f.jpg');
-                // Footer XML already has drawing — don't inject again
-            } else {
-                imgRId = await addRelToFile(zip, relsPath, '../media/xtremelabs_logo_f.jpg',
-                    'http://schemas.openxmlformats.org/officeDocument/2006/relationships/image');
-                fXml = ensureNs(fXml, 'w:ftr');
-                fXml = fXml.replace(/<\/w:ftr>/, `${logoParaFooter(imgRId)}</w:ftr>`);
-                zip.file(fPath, fXml);
-            }
+            // Always add a new rel for our logo image (addRelToFile reuses if target already present)
+            const imgRId = await addRelToFile(zip, relsPath, '../media/xtremelabs_logo_f.jpg',
+                'http://schemas.openxmlformats.org/officeDocument/2006/relationships/image');
+
+            // Always inject the logo paragraph at the end of the footer
+            fXml = ensureNs(fXml, 'w:ftr');
+            fXml = fXml.replace(/<\/w:ftr>/, `${logoParaFooter(imgRId)}</w:ftr>`);
+            zip.file(fPath, fXml);
         }
     } else {
         const imgRId = 'rId1';
