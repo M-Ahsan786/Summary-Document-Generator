@@ -104,19 +104,21 @@ async function injectHeader(zip, logoBuffer) {
                 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/image');
 
             // Always inject the logo paragraph at the top of the header
+            const hDrawingId = await getNextDrawingId(zip);
             hXml = ensureNs(hXml, 'w:hdr');
-            hXml = hXml.replace(/(<w:hdr[^>]*>)/, `$1${logoParaHeader(imgRId)}`);
+            hXml = hXml.replace(/(<w:hdr[^>]*>)/, `$1${logoParaHeader(imgRId, hDrawingId)}`);
             zip.file(hPath, hXml);
         }
     } else {
         // CREATE header1.xml from scratch
         const imgRId = 'rId1';
+        const hDrawingId = await getNextDrawingId(zip);
         // Image rel in header1.xml.rels
         zip.file('word/_rels/header1.xml.rels',
             relsDoc(`<Relationship Id="${imgRId}" ` +
                 `Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" ` +
                 `Target="../media/xtremelabs_logo_h.jpg"/>`));
-        zip.file('word/header1.xml', buildHeader(imgRId));
+        zip.file('word/header1.xml', buildHeader(imgRId, hDrawingId));
         await ensureOverride(zip, '/word/header1.xml',
             'application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml');
         await addRelToDocRels(zip, 'header1.xml',
@@ -148,17 +150,19 @@ async function injectFooter(zip, logoBuffer) {
                 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/image');
 
             // Always inject the logo paragraph at the end of the footer
+            const fDrawingId = await getNextDrawingId(zip);
             fXml = ensureNs(fXml, 'w:ftr');
-            fXml = fXml.replace(/<\/w:ftr>/, `${logoParaFooter(imgRId)}</w:ftr>`);
+            fXml = fXml.replace(/<\/w:ftr>/, `${logoParaFooter(imgRId, fDrawingId)}</w:ftr>`);
             zip.file(fPath, fXml);
         }
     } else {
         const imgRId = 'rId1';
+        const fDrawingId = await getNextDrawingId(zip);
         zip.file('word/_rels/footer1.xml.rels',
             relsDoc(`<Relationship Id="${imgRId}" ` +
                 `Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" ` +
                 `Target="../media/xtremelabs_logo_f.jpg"/>`));
-        zip.file('word/footer1.xml', buildFooter(imgRId));
+        zip.file('word/footer1.xml', buildFooter(imgRId, fDrawingId));
         await ensureOverride(zip, '/word/footer1.xml',
             'application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml');
         await addRelToDocRels(zip, 'footer1.xml',
@@ -178,54 +182,72 @@ function relsDoc(relXml) {
         `</Relationships>`;
 }
 
-function buildHeader(rId) {
+function buildHeader(rId, drawingId) {
     return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
         `<w:hdr xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"` +
         ` xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"` +
         ` xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"` +
         ` xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"` +
         ` xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">` +
-        logoParaHeader(rId) + `</w:hdr>`;
+        logoParaHeader(rId, drawingId) + `</w:hdr>`;
 }
 
-function buildFooter(rId) {
+function buildFooter(rId, drawingId) {
     return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
         `<w:ftr xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"` +
         ` xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"` +
         ` xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"` +
         ` xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"` +
         ` xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">` +
-        logoParaFooter(rId) + `</w:ftr>`;
+        logoParaFooter(rId, drawingId) + `</w:ftr>`;
 }
 
-function logoParaHeader(rId) {
+function logoParaHeader(rId, drawingId) {
     return `<w:p><w:pPr><w:jc w:val="right"/></w:pPr>` +
-        `<w:r>${imgDrawing(rId, 1270000, 292100)}</w:r></w:p>`;
+        `<w:r>${imgDrawing(rId, 1270000, 292100, drawingId)}</w:r></w:p>`;
 }
 
-function logoParaFooter(rId) {
+function logoParaFooter(rId, drawingId) {
     return `<w:p>` +
         `<w:pPr><w:jc w:val="center"/>` +
         `<w:pBdr><w:top w:val="single" w:sz="4" w:space="1" w:color="2E5FA3"/></w:pBdr>` +
         `</w:pPr>` +
         `<w:r><w:rPr><w:b/><w:color w:val="1F3864"/><w:sz w:val="20"/></w:rPr>` +
         `<w:t xml:space="preserve">Powered By:  </w:t></w:r>` +
-        `<w:r>${imgDrawing(rId, 857250, 190500)}</w:r></w:p>`;
+        `<w:r>${imgDrawing(rId, 857250, 190500, drawingId)}</w:r></w:p>`;
 }
 
-function imgDrawing(rId, cx, cy) {
+function imgDrawing(rId, cx, cy, drawingId) {
+    const did = drawingId || 1;
     return `<w:drawing>` +
         `<wp:inline distT="0" distB="0" distL="0" distR="0">` +
         `<wp:extent cx="${cx}" cy="${cy}"/>` +
         `<wp:effectExtent l="0" t="0" r="0" b="0"/>` +
-        `<wp:docPr id="1" name="logo"/><wp:cNvGraphicFramePr/>` +
+        `<wp:docPr id="${did}" name="logo_${did}"/><wp:cNvGraphicFramePr/>` +
         `<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">` +
-        `<pic:pic><pic:nvPicPr><pic:cNvPr id="1" name="logo"/><pic:cNvPicPr/></pic:nvPicPr>` +
+        `<pic:pic><pic:nvPicPr><pic:cNvPr id="${did}" name="logo_${did}"/><pic:cNvPicPr/></pic:nvPicPr>` +
         `<pic:blipFill><a:blip r:embed="${rId}"/>` +
         `<a:stretch><a:fillRect/></a:stretch></pic:blipFill>` +
         `<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm>` +
         `<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr>` +
         `</pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing>`;
+}
+
+// Get the next unique drawing ID across the entire docx (document + all headers/footers)
+async function getNextDrawingId(zip) {
+    const xmlFiles = Object.keys(zip.files).filter(f =>
+        /^word\/(document|header\d*|footer\d*)\.xml$/.test(f)
+    );
+    let maxId = 0;
+    for (const f of xmlFiles) {
+        const xml = await zip.file(f).async('string');
+        const matches = [...xml.matchAll(/\bdocPr\s+id="(\d+)"/g)];
+        for (const m of matches) {
+            const n = parseInt(m[1]);
+            if (n > maxId) maxId = n;
+        }
+    }
+    return maxId + 1;
 }
 
 // Ensure required namespaces on root element
