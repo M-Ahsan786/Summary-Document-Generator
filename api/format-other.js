@@ -90,42 +90,29 @@ async function injectHeader(zip, logoBuffer) {
     zip.file(imgFile, logoBuffer);
     await ensureContentType(zip, 'jpg', 'image/jpeg');
 
-    const existingHeaders = Object.keys(zip.files).filter(f => /^word\/header\d*\.xml$/.test(f));
+    // Find the single target header: the one wired as w:type="default" in document.xml
+    // If none found, fall back to first existing header, or create a new one
+    const targetHeader = await findOrCreateDefaultHeader(zip, 'header');
 
-    if (existingHeaders.length > 0) {
-        // PATCH existing headers — always inject logo paragraph
-        for (const hPath of existingHeaders) {
-            const relsPath = `word/_rels/${hPath.replace('word/', '')}.rels`;
+    const relsPath = `word/_rels/${targetHeader.replace('word/', '')}.rels`;
+    let hXml = await zip.file(targetHeader).async('string');
 
-            let hXml = await zip.file(hPath).async('string');
-
-            // Always add a new rel for our logo image (addRelToFile reuses if target already present)
-            const imgRId = await addRelToFile(zip, relsPath, '../media/xtremelabs_logo_h.jpg',
-                'http://schemas.openxmlformats.org/officeDocument/2006/relationships/image');
-
-            // Always inject the logo paragraph at the top of the header
-            const hDrawingId = await getNextDrawingId(zip);
-            hXml = ensureNs(hXml, 'w:hdr');
-            hXml = hXml.replace(/(<w:hdr[^>]*>)/, `$1${logoParaHeader(imgRId, hDrawingId)}`);
-            zip.file(hPath, hXml);
-        }
-    } else {
-        // CREATE header1.xml from scratch
-        const imgRId = 'rId1';
-        const hDrawingId = await getNextDrawingId(zip);
-        // Image rel in header1.xml.rels
-        zip.file('word/_rels/header1.xml.rels',
-            relsDoc(`<Relationship Id="${imgRId}" ` +
-                `Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" ` +
-                `Target="../media/xtremelabs_logo_h.jpg"/>`));
-        zip.file('word/header1.xml', buildHeader(imgRId, hDrawingId));
-        await ensureOverride(zip, '/word/header1.xml',
-            'application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml');
-        await addRelToDocRels(zip, 'header1.xml',
-            'http://schemas.openxmlformats.org/officeDocument/2006/relationships/header',
-            'rId_hdr1');
-        await wireRef(zip, 'header', 'rId_hdr1');
+    // Skip if our logo was already injected (idempotency)
+    if (hXml.includes('xtremelabs_logo_h.jpg') || hXml.includes('xtremelabs_logo')) {
+        return;
     }
+
+    // Add image relationship to THIS header's own .rels file
+    const imgRId = await addRelToFile(zip, relsPath, '../media/xtremelabs_logo_h.jpg',
+        'http://schemas.openxmlformats.org/officeDocument/2006/relationships/image');
+
+    // Get unique drawing ID
+    const drawingId = await getNextDrawingId(zip);
+
+    // Inject logo paragraph at top of header
+    hXml = ensureNs(hXml, 'w:hdr');
+    hXml = hXml.replace(/(<w:hdr[^>]*>)/, `$1${logoParaHeader(imgRId, drawingId)}`);
+    zip.file(targetHeader, hXml);
 }
 
 // ─────────────────────────────────────────────────────
@@ -136,40 +123,85 @@ async function injectFooter(zip, logoBuffer) {
     zip.file(imgFile, logoBuffer);
     await ensureContentType(zip, 'jpg', 'image/jpeg');
 
-    const existingFooters = Object.keys(zip.files).filter(f => /^word\/footer\d*\.xml$/.test(f));
+    // Find the single target footer: the one wired as w:type="default" in document.xml
+    const targetFooter = await findOrCreateDefaultHeader(zip, 'footer');
 
-    if (existingFooters.length > 0) {
-        // PATCH existing footers — always inject logo paragraph
-        for (const fPath of existingFooters) {
-            const relsPath = `word/_rels/${fPath.replace('word/', '')}.rels`;
+    const relsPath = `word/_rels/${targetFooter.replace('word/', '')}.rels`;
+    let fXml = await zip.file(targetFooter).async('string');
 
-            let fXml = await zip.file(fPath).async('string');
-
-            // Always add a new rel for our logo image (addRelToFile reuses if target already present)
-            const imgRId = await addRelToFile(zip, relsPath, '../media/xtremelabs_logo_f.jpg',
-                'http://schemas.openxmlformats.org/officeDocument/2006/relationships/image');
-
-            // Always inject the logo paragraph at the end of the footer
-            const fDrawingId = await getNextDrawingId(zip);
-            fXml = ensureNs(fXml, 'w:ftr');
-            fXml = fXml.replace(/<\/w:ftr>/, `${logoParaFooter(imgRId, fDrawingId)}</w:ftr>`);
-            zip.file(fPath, fXml);
-        }
-    } else {
-        const imgRId = 'rId1';
-        const fDrawingId = await getNextDrawingId(zip);
-        zip.file('word/_rels/footer1.xml.rels',
-            relsDoc(`<Relationship Id="${imgRId}" ` +
-                `Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" ` +
-                `Target="../media/xtremelabs_logo_f.jpg"/>`));
-        zip.file('word/footer1.xml', buildFooter(imgRId, fDrawingId));
-        await ensureOverride(zip, '/word/footer1.xml',
-            'application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml');
-        await addRelToDocRels(zip, 'footer1.xml',
-            'http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer',
-            'rId_ftr1');
-        await wireRef(zip, 'footer', 'rId_ftr1');
+    // Skip if our logo was already injected (idempotency)
+    if (fXml.includes('xtremelabs_logo_f.jpg') || fXml.includes('xtremelabs_logo')) {
+        return;
     }
+
+    // Add image relationship to THIS footer's own .rels file
+    const imgRId = await addRelToFile(zip, relsPath, '../media/xtremelabs_logo_f.jpg',
+        'http://schemas.openxmlformats.org/officeDocument/2006/relationships/image');
+
+    // Get unique drawing ID
+    const drawingId = await getNextDrawingId(zip);
+
+    // Inject logo paragraph at end of footer
+    fXml = ensureNs(fXml, 'w:ftr');
+    fXml = fXml.replace(/<\/w:ftr>/, `${logoParaFooter(imgRId, drawingId)}</w:ftr>`);
+    zip.file(targetFooter, fXml);
+}
+
+// ─────────────────────────────────────────────────────
+// Find (or create) the default header/footer xml path
+// Returns path like 'word/header1.xml'
+// ─────────────────────────────────────────────────────
+async function findOrCreateDefaultHeader(zip, kind) {
+    const tag = kind === 'header' ? 'w:headerReference' : 'w:footerReference';
+    const filePattern = kind === 'header' ? /^\/word\/header\d*\.xml$/ : /^\/word\/footer\d*\.xml$/;
+    const filePatternNoSlash = kind === 'header' ? /^word\/header\d*\.xml$/ : /^word\/footer\d*\.xml$/;
+
+    // Step 1: Find which headerN/footerN is wired as w:type="default" in document.xml
+    const docXml = await zip.file('word/document.xml').async('string');
+    const docRelsXml = zip.file('word/_rels/document.xml.rels')
+        ? await zip.file('word/_rels/document.xml.rels').async('string')
+        : '';
+
+    // Find all default references: <w:headerReference w:type="default" r:id="rIdXXX"/>
+    const defaultRefMatch = docXml.match(new RegExp(`<${tag}[^>]*w:type="default"[^>]*r:id="([^"]+)"`))
+        || docXml.match(new RegExp(`<${tag}[^>]*r:id="([^"]+)"[^>]*w:type="default"`));
+
+    if (defaultRefMatch) {
+        const rId = defaultRefMatch[1];
+        // Look up this rId in document.xml.rels to get the file name
+        const relMatch = docRelsXml.match(new RegExp(`Id="${rId}"[^>]*Target="([^"]+)"`));
+        if (relMatch) {
+            const target = relMatch[1]; // e.g. "header1.xml" or "../word/header1.xml"
+            const fileName = target.replace(/^.*\//, ''); // just "header1.xml"
+            const fullPath = `word/${fileName}`;
+            if (zip.file(fullPath)) return fullPath;
+        }
+    }
+
+    // Step 2: Fall back to first existing header/footer file
+    const existing = Object.keys(zip.files).filter(f => filePatternNoSlash.test(f));
+    if (existing.length > 0) return existing[0];
+
+    // Step 3: Create from scratch
+    const newFile = kind === 'header' ? 'word/header1.xml' : 'word/footer1.xml';
+    const relsFile = kind === 'header' ? 'word/_rels/header1.xml.rels' : 'word/_rels/footer1.xml.rels';
+    const contentType = kind === 'header'
+        ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml'
+        : 'application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml';
+    const relType = kind === 'header'
+        ? 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/header'
+        : 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer';
+    const wiredRId = kind === 'header' ? 'rId_hdr1' : 'rId_ftr1';
+    const emptyXml = kind === 'header'
+        ? `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:pPr><w:jc w:val="right"/></w:pPr></w:p></w:hdr>`
+        : `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:ftr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:pPr><w:jc w:val="center"/></w:pPr></w:p></w:ftr>`;
+
+    zip.file(newFile, emptyXml);
+    zip.file(relsFile, relsDoc(''));
+    await ensureOverride(zip, `/${newFile}`, contentType);
+    await addRelToDocRels(zip, newFile.replace('word/', ''), relType, wiredRId);
+    await wireRef(zip, kind, wiredRId);
+    return newFile;
 }
 
 // ─────────────────────────────────────────────────────
